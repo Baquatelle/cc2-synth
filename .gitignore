@@ -1,0 +1,28 @@
+# openFrameworks install (fetched by scripts/bootstrap.py)
+# No trailing slash: during local development `of` may be a SYMLINK to an
+# existing OF install, and a `/of/` pattern only matches real directories,
+# which would let the symlink be committed.
+/of
+/.cache/
+
+# build artifacts
+synth/obj/
+synth/build/
+synth/bin/*
+!synth/bin/data/
+synth/bin/data/samples/
+
+# generated project files (projectGenerator output)
+synth/*.xcodeproj/
+synth/Makefile
+synth/config.make
+synth/openFrameworks-Info.plist
+synth/Project.xcconfig
+synth/of.entitlements
+synth/*.sln
+synth/*.vcxproj*
+synth/.vscode/
+
+# os / editor
+.DS_Store
+*.swp
