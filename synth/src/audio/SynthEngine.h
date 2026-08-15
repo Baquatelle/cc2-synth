@@ -29,8 +29,9 @@
 class SynthEngine
 {
   public:
-    /// Number of simultaneous notes the engine can sound.
-    static constexpr std::size_t kMaxVoices = 16;
+    /// Simultaneous notes per voice type. Each type gets its own sub-pool so a
+    /// held chord of FM notes cannot starve the drum track.
+    static constexpr std::size_t kVoicesPerType = 16;
 
     /// Samples retained for the oscilloscope. A power of two keeps the wrap cheap.
     static constexpr std::size_t kScopeSize = 2048;
@@ -131,8 +132,16 @@ class SynthEngine
     Voice* acquireVoice(VoiceType aType, std::uint64_t& aOutStamp);
     void   applyParamsToPool();
 
+    /// Sub-pool bounds for a voice type, as indices into `mVoices`.
+    struct PoolRange
+    {
+        std::size_t mBegin = 0;
+        std::size_t mEnd   = 0;
+    };
+
     // ---- Composition: the engine exclusively owns every voice. ----
-    std::vector<std::unique_ptr<Voice>> mVoices;
+    std::vector<std::unique_ptr<Voice>>    mVoices;
+    std::array<PoolRange, kVoiceTypeCount> mRanges{};
 
     EventQueue<NoteEvent, 256> mEvents;
 

@@ -32,9 +32,22 @@ class ofApp : public ofBaseApp
 
     ofSoundStream mSoundStream;
 
+    /// A note started by the computer keyboard.
+    ///
+    /// The voice type is stored alongside the pitch because the release must go to
+    /// the type the note *started* on. Pressing 1/2/3 while a key is still held
+    /// changes `mActiveVoiceType`, and releasing with the new type would leave the
+    /// original note sounding forever.
+    struct HeldNote
+    {
+        int       mMidiNote  = 60;
+        VoiceType mVoiceType = VoiceType::FM;
+    };
+
     /// Which keyboard keys are currently down, so auto-repeat does not retrigger a
     /// note and so release is sent exactly once. Keyed by the raw key code.
-    std::map<int, int> mHeldKeys;
+    std::map<int, HeldNote> mHeldKeys;
 
-    int mOctaveOffset = 0;
+    VoiceType mActiveVoiceType = VoiceType::FM;
+    int       mOctaveOffset    = 0;
 };

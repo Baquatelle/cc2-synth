@@ -1,11 +1,17 @@
 #include "SynthEngine.h"
 
 #include "FMVoice.h"
+#include "PercussionVoice.h"
 
 #include <cmath>
 
 namespace
 {
+
+constexpr std::size_t typeIndex(VoiceType aType)
+{
+    return static_cast<std::size_t>(aType);
+}
 
 /// Makeup gain on the voice mix, applied *before* the master soft-clipper.
 constexpr float kMakeupGain = 3.0f;
@@ -27,14 +33,31 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
     mOutputChannels = (aOutputChannels > 0) ? aOutputChannels : 2;
 
     mVoices.clear();
-    mVoices.reserve(kMaxVoices);
+    mVoices.reserve(kVoicesPerType * kVoiceTypeCount);
 
     // Allocate the whole pool up front: the audio thread must never allocate, so
     // note-on can only ever pick an already-constructed voice.
-    for (std::size_t i = 0; i < kMaxVoices; ++i)
-    {
-        mVoices.emplace_back(std::make_unique<FMVoice>());
-    }
+    auto buildRange = [this](VoiceType aType) {
+        PoolRange range;
+        range.mBegin = mVoices.size();
+        for (std::size_t i = 0; i < kVoicesPerType; ++i)
+        {
+            switch (aType)
+            {
+            case VoiceType::FM:
+                mVoices.emplace_back(std::make_unique<FMVoice>());
+                break;
+            case VoiceType::Percussion:
+                mVoices.emplace_back(std::make_unique<PercussionVoice>());
+                break;
+            }
+        }
+        range.mEnd                = mVoices.size();
+        mRanges[typeIndex(aType)] = range;
+    };
+
+    buildRange(VoiceType::FM);
+    buildRange(VoiceType::Percussion);
 
     for (auto& voice : mVoices)
     {
@@ -125,16 +148,22 @@ void SynthEngine::applyParamsToPool()
 
     for (auto& voice : mVoices)
     {
+        // Voice::setParams() only adopts the envelope when the voice reports
+        // usesGlobalEnvelope(), which keeps percussion's own zero-sustain shape.
         voice->setParams(params);
     }
 }
 
 Voice* SynthEngine::acquireVoice(VoiceType aType, std::uint64_t& aOutStamp)
 {
-    (void)aType;
+    const PoolRange& range = mRanges[typeIndex(aType)];
+    if (range.mBegin >= range.mEnd || range.mEnd > mVoices.size())
+    {
+        return nullptr;
+    }
 
     // Prefer a genuinely free voice.
-    for (std::size_t i = 0; i < mVoices.size(); ++i)
+    for (std::size_t i = range.mBegin; i < range.mEnd; ++i)
     {
         if (!mVoices[i]->isActive())
         {
@@ -147,7 +176,7 @@ Voice* SynthEngine::acquireVoice(VoiceType aType, std::uint64_t& aOutStamp)
     Voice*        candidate = nullptr;
     std::uint64_t oldest    = ~std::uint64_t(0);
 
-    for (std::size_t i = 0; i < mVoices.size(); ++i)
+    for (std::size_t i = range.mBegin; i < range.mEnd; ++i)
     {
         if (mVoices[i]->isReleasing() && mVoices[i]->stamp() < oldest)
         {
@@ -160,7 +189,7 @@ Voice* SynthEngine::acquireVoice(VoiceType aType, std::uint64_t& aOutStamp)
     if (!candidate)
     {
         oldest = ~std::uint64_t(0);
-        for (std::size_t i = 0; i < mVoices.size(); ++i)
+        for (std::size_t i = range.mBegin; i < range.mEnd; ++i)
         {
             if (mVoices[i]->stamp() < oldest)
             {
@@ -199,8 +228,11 @@ void SynthEngine::handleEvent(const NoteEvent& aEvent)
         return;
     }
 
-    // NoteOff: release every voice matching pitch and source.
-    for (std::size_t i = 0; i < mVoices.size(); ++i)
+    // NoteOff: release every voice of that type matching pitch and source. The
+    // event carries its own voiceType, so switching the selected type while a key
+    // is held can never misroute the release and strand a note.
+    const PoolRange& range = mRanges[typeIndex(aEvent.mVoiceType)];
+    for (std::size_t i = range.mBegin; i < range.mEnd && i < mVoices.size(); ++i)
     {
         Voice* voice = mVoices[i].get();
         if (voice->isActive() && voice->midiNote() == aEvent.mMidiNote && voice->sourceId() == aEvent.mSourceId)
@@ -229,7 +261,7 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
     const float targetVolume      = masterVolume();
     // ~5 ms one-pole smoothing so dragging the volume never steps or zippers.
     const float volumeCoefficient = dsp::onePoleCoefficient(0.005f, mSampleRate);
-    const float mixScale          = kMakeupGain / std::sqrt(static_cast<float>(kMaxVoices));
+    const float mixScale          = kMakeupGain / std::sqrt(static_cast<float>(kVoicesPerType));
     std::size_t scopeWrite        = mScopeWrite.load(std::memory_order_relaxed);
     float       peak              = 0.0f;
 
