@@ -29,6 +29,14 @@ void Voice::noteOn(std::uint8_t aMidiNote, float aVelocity, std::uint8_t aSource
 
 void Voice::noteOff()
 {
+    // One-shot voices (drums, sampled snippets) play to their natural length.
+    // A sequencer gate is far shorter than a cymbal tail, so honouring note-off
+    // here would chop every hit off mid-decay.
+    if (isOneShot())
+    {
+        return;
+    }
+
     mEnvelope.noteOff();
 }
 
@@ -51,7 +59,8 @@ void Voice::fastRelease()
     panic.mRelease           = dsp::kPanicReleaseSeconds;
     mEnvelope.setSettings(panic);
 
-    // Call the envelope directly, so the shortened release starts right away.
+    // Call the envelope directly, deliberately bypassing Voice::noteOff(), which
+    // returns early for one-shot voices. A panic has to silence drums too.
     mEnvelope.noteOff();
 }
 
@@ -59,7 +68,14 @@ void Voice::setParams(const VoiceParams& aParams)
 {
     mParams = aParams;
 
-    mEnvelope.setSettings(aParams.mEnvelope);
+    // Only sustained instruments follow the global ADSR. Percussive one-shots
+    // choose their own envelope at note-on and must not have it overwritten by
+    // this per-block push, or their zero sustain would become the UI's non-zero
+    // sustain and they would never finish.
+    if (usesGlobalEnvelope())
+    {
+        mEnvelope.setSettings(aParams.mEnvelope);
+    }
 
     mFilter.setCutoff(aParams.mCutoffHz);
     mFilter.setResonance(aParams.mResonance);
@@ -68,8 +84,8 @@ void Voice::setParams(const VoiceParams& aParams)
 
 float Voice::render()
 {
-    // Skip the whole chain when idle: this is the difference between a constant
-    // filter cost and near-zero cost at rest.
+    // Skip the whole chain when idle: with a 48-voice pool this is the difference
+    // between a constant filter cost and near-zero cost at rest.
     if (mEnvelope.isFinished())
     {
         return 0.0f;
