@@ -9,7 +9,9 @@
 namespace
 {
 
-constexpr std::uint16_t kFormatPcm = 1;
+constexpr std::uint16_t kFormatPcm        = 1;
+constexpr std::uint16_t kFormatIeeeFloat  = 3;
+constexpr std::uint16_t kFormatExtensible = 0xFFFE;
 
 /// All multi-byte WAV fields are little-endian. We assemble them byte by byte
 /// rather than memcpy-ing into a struct so the parser behaves identically
@@ -23,6 +25,49 @@ std::uint32_t readU32(const unsigned char* aData)
 {
     return static_cast<std::uint32_t>(aData[0]) | (static_cast<std::uint32_t>(aData[1]) << 8) |
            (static_cast<std::uint32_t>(aData[2]) << 16) | (static_cast<std::uint32_t>(aData[3]) << 24);
+}
+
+/// Converts one little-endian encoded frame-channel value to a float in [-1, 1].
+float decodeSample(const unsigned char* aData, std::uint16_t aBitsPerSample, std::uint16_t aFormat)
+{
+    if (aFormat == kFormatIeeeFloat)
+    {
+        const std::uint32_t bits  = readU32(aData);
+        float               value = 0.0f;
+        std::memcpy(&value, &bits, sizeof(value));
+        return value;
+    }
+
+    switch (aBitsPerSample)
+    {
+    case 8:
+        // 8-bit WAV is *unsigned*, centred on 128 -- unlike every wider format.
+        return (static_cast<float>(aData[0]) - 128.0f) / 128.0f;
+
+    case 16: {
+        const std::int16_t value = static_cast<std::int16_t>(readU16(aData));
+        return static_cast<float>(value) / 32768.0f;
+    }
+
+    case 24: {
+        // Sign-extend the 24-bit value into 32 bits.
+        std::int32_t value = (static_cast<std::int32_t>(aData[0])) | (static_cast<std::int32_t>(aData[1]) << 8) |
+                             (static_cast<std::int32_t>(aData[2]) << 16);
+        if (value & 0x00800000)
+        {
+            value |= static_cast<std::int32_t>(0xFF000000u);
+        }
+        return static_cast<float>(value) / 8388608.0f;
+    }
+
+    case 32: {
+        const std::int32_t value = static_cast<std::int32_t>(readU32(aData));
+        return static_cast<float>(value) / 2147483648.0f;
+    }
+
+    default:
+        return 0.0f;
+    }
 }
 
 } // namespace
@@ -81,6 +126,12 @@ bool load(const std::string& aPath, Sample& aOutSample, std::string& aOutError)
             sampleRate               = readU32(fmt + 4);
             bitsPerSample            = readU16(fmt + 14);
 
+            // WAVE_FORMAT_EXTENSIBLE stores the real format tag in its GUID; the
+            // first two bytes of the subformat match the classic tag values.
+            if (format == kFormatExtensible && bodySize >= 26)
+            {
+                format = readU16(fmt + 24);
+            }
             haveFormat = true;
         }
         else if (std::memcmp(header, "data", 4) == 0)
@@ -103,10 +154,10 @@ bool load(const std::string& aPath, Sample& aOutSample, std::string& aOutError)
         aOutError = "missing or empty 'data' chunk";
         return false;
     }
-    if (format != kFormatPcm)
+    if (format != kFormatPcm && format != kFormatIeeeFloat)
     {
-        aOutError =
-            "unsupported (compressed) format tag " + std::to_string(format) + "; only uncompressed PCM is supported";
+        aOutError = "unsupported (compressed) format tag " + std::to_string(format) +
+                    "; only uncompressed PCM and IEEE float are supported";
         return false;
     }
     if (channels == 0 || sampleRate == 0)
@@ -114,9 +165,14 @@ bool load(const std::string& aPath, Sample& aOutSample, std::string& aOutError)
         aOutError = "invalid channel count or sample rate";
         return false;
     }
-    if (bitsPerSample != 16)
+    if (bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24 && bitsPerSample != 32)
     {
-        aOutError = "unsupported bit depth " + std::to_string(bitsPerSample) + "; only 16-bit PCM is supported";
+        aOutError = "unsupported bit depth " + std::to_string(bitsPerSample);
+        return false;
+    }
+    if (format == kFormatIeeeFloat && bitsPerSample != 32)
+    {
+        aOutError = "IEEE float files must be 32-bit";
         return false;
     }
 
@@ -141,8 +197,7 @@ bool load(const std::string& aPath, Sample& aOutSample, std::string& aOutError)
         float                sum      = 0.0f;
         for (std::uint16_t channel = 0; channel < channels; ++channel)
         {
-            const std::int16_t value = static_cast<std::int16_t>(readU16(framePtr + channel * bytesPerSample));
-            sum += static_cast<float>(value) / 32768.0f;
+            sum += decodeSample(framePtr + channel * bytesPerSample, bitsPerSample, format);
         }
         aOutSample.mFrames[frame] = dsp::clampf(sum * channelScale, -1.0f, 1.0f);
     }
