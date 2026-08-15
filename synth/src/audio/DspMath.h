@@ -34,6 +34,17 @@ inline float wrapPhase(float aPhase)
     return aPhase;
 }
 
+/// Converts a one-pole time constant in seconds into a per-sample coefficient
+/// that reaches ~99.9% of its target after `aSeconds`.
+inline float onePoleCoefficient(float aSeconds, float aSampleRate)
+{
+    if (aSeconds <= 0.0f || aSampleRate <= 0.0f)
+    {
+        return 1.0f;
+    }
+    return clampf(1.0f - std::exp(-6.9077553f / (aSeconds * aSampleRate)), 0.0f, 1.0f);
+}
+
 /// Per-sample multiplier that decays 1.0 down to kSilence over `aSeconds`.
 /// Returns 0 for a non-positive time so the caller's stage ends immediately.
 inline float decayCoefficient(float aSeconds, float aSampleRate)
