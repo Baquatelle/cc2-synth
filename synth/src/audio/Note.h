@@ -45,7 +45,8 @@ struct NoteEvent
     enum class Kind : std::uint8_t
     {
         NoteOn,
-        NoteOff
+        NoteOff,
+        AllNotesOff //< Panic / stop-all.
     };
 
     Kind         mKind      = Kind::NoteOn;
@@ -77,6 +78,13 @@ struct NoteEvent
         event.mMidiNote  = static_cast<std::uint8_t>(dsp::clampf(static_cast<float>(aMidiNote), 0.0f, 127.0f));
         event.mVelocity  = 0.0f;
         event.mSourceId  = static_cast<std::uint8_t>(aSourceId);
+        return event;
+    }
+
+    static NoteEvent allNotesOff()
+    {
+        NoteEvent event;
+        event.mKind = Kind::AllNotesOff;
         return event;
     }
 };

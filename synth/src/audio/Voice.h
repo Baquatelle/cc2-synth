@@ -64,6 +64,9 @@ class Voice
     /// Silences the voice immediately, discarding any tail.
     void reset();
 
+    /// Forces a very short release, whatever the voice's own envelope says.
+    void fastRelease();
+
     /// Applies the current engine parameters. Non-virtual wrapper so the shared
     /// filter/envelope handling always happens; `onParams()` adds per-type extras.
     void setParams(const VoiceParams& aParams);

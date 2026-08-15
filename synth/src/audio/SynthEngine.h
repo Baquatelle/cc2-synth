@@ -52,6 +52,9 @@ class SynthEngine
     /// Enqueues a note-off matching the pitch/source of a previous note-on.
     void noteOff(VoiceType aType, int aMidiNote, std::uint8_t aSourceId = 0);
 
+    /// Releases everything currently sounding.
+    void allNotesOff();
+
     // --- Parameters (thread-safe, lock-free) ---------------------------------
 
     void setCutoff(float aHz);

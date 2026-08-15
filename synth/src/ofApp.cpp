@@ -99,6 +99,9 @@ void ofApp::keyPressed(int aKey)
     case 'X':
         mOctaveOffset = std::min(mOctaveOffset + 1, 3);
         return;
+    case OF_KEY_ESC:
+        mEngine.allNotesOff();
+        return;
     default:
         break;
     }

@@ -43,6 +43,13 @@ void SynthEngine::noteOff(VoiceType aType, int aMidiNote, std::uint8_t aSourceId
     mEvents.push(NoteEvent::noteOff(aMidiNote, aType, aSourceId));
 }
 
+void SynthEngine::allNotesOff()
+{
+    // Queued, not applied here: releasing voices directly from the UI thread
+    // would mutate objects that process() is concurrently rendering.
+    mEvents.push(NoteEvent::allNotesOff());
+}
+
 void SynthEngine::setCutoff(float aHz)
 {
     mCutoff.store(dsp::clampf(aHz, 20.0f, 18000.0f), std::memory_order_relaxed);
@@ -141,6 +148,15 @@ Voice* SynthEngine::acquireVoice(VoiceType aType, std::uint64_t& aOutStamp)
 void SynthEngine::handleEvent(const NoteEvent& aEvent)
 {
     // Audio thread: it is safe to touch voices directly from here.
+    if (aEvent.mKind == NoteEvent::Kind::AllNotesOff)
+    {
+        for (auto& voice : mVoices)
+        {
+            voice->fastRelease();
+        }
+        return;
+    }
+
     if (aEvent.mKind == NoteEvent::Kind::NoteOn)
     {
         std::uint64_t stamp = 0;
