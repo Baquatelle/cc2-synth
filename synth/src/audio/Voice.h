@@ -106,6 +106,18 @@ class Voice
         return mStamp;
     }
 
+    /// Current envelope gain, exposed so the visualisers can drive particle
+    /// brightness/lifetime from the real synthesis state.
+    float envelopeLevel() const
+    {
+        return mEnvelope.level();
+    }
+
+    Envelope::Stage envelopeStage() const
+    {
+        return mEnvelope.stage();
+    }
+
     /// Which concrete timbre this is. Pure virtual rather than a stored field so
     /// a subclass cannot misreport itself.
     virtual VoiceType type() const = 0;
