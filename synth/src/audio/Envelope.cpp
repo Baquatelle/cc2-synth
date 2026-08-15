@@ -112,5 +112,6 @@ float Envelope::process()
         break;
     }
 
+    mLevel = dsp::flushDenormal(mLevel);
     return mLevel;
 }
