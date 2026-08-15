@@ -1,0 +1,67 @@
+#include "Voice.h"
+
+void Voice::prepare(float aSampleRate)
+{
+    mSampleRate = (aSampleRate > 0.0f) ? aSampleRate : 44100.0f;
+
+    // The owned parts are prepared here, by the whole. Nothing outside this class
+    // can reach them (composition).
+    mEnvelope.prepare(mSampleRate);
+    mFilter.prepare(mSampleRate);
+
+    onPrepare();
+}
+
+void Voice::noteOn(std::uint8_t aMidiNote, float aVelocity, std::uint8_t aSourceId, std::uint64_t aStamp)
+{
+    mMidiNote  = aMidiNote;
+    mSourceId  = aSourceId;
+    mStamp     = aStamp;
+    mVelocity  = dsp::clampf(aVelocity, 0.0f, 1.0f);
+    mFrequency = notes::midiToFrequency(static_cast<float>(aMidiNote));
+
+    onNoteOn();
+
+    // Retrigger last, so a subclass's onNoteOn() cannot leave the envelope idle
+    // and produce a voice the pool believes is free while it is sounding.
+    mEnvelope.noteOn();
+}
+
+void Voice::noteOff()
+{
+    mEnvelope.noteOff();
+}
+
+void Voice::reset()
+{
+    mEnvelope.reset();
+    mFilter.reset();
+}
+
+void Voice::setParams(const VoiceParams& aParams)
+{
+    mParams = aParams;
+
+    mEnvelope.setSettings(aParams.mEnvelope);
+
+    mFilter.setCutoff(aParams.mCutoffHz);
+    mFilter.setResonance(aParams.mResonance);
+    onParams(aParams);
+}
+
+float Voice::render()
+{
+    // Skip the whole chain when idle: this is the difference between a constant
+    // filter cost and near-zero cost at rest.
+    if (mEnvelope.isFinished())
+    {
+        return 0.0f;
+    }
+
+    // ---- Template Method: the fixed signal chain for every voice type. ----
+    const float raw    = generate();           // subclass-specific waveform
+    const float shaped = mFilter.process(raw); // owned filter (composition)
+    const float gain   = mEnvelope.process();  // owned envelope (composition)
+
+    return shaped * gain * mVelocity;
+}
