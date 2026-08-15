@@ -29,7 +29,8 @@ struct VoiceParams
 /// Every Voice owns an Envelope and a Filter as **by-value members**. They are
 /// created with the voice, destroyed with it, and are unreachable from anywhere
 /// else in the program. Neither has any meaning outside the voice it shapes,
-/// which is the defining property of composition.
+/// which is the defining property of composition -- contrast this with the
+/// Samples in SampleLibrary, which are shared (aggregation).
 ///
 /// ------------------------------------------------------------------------
 /// INHERITANCE / POLYMORPHISM
@@ -59,9 +60,14 @@ class Voice
 
     /// Begins the release stage. The voice keeps rendering until the release has
     /// finished -- see `isActive()`.
+    ///
+    /// One-shot voices (see `isOneShot()`) ignore this: a drum hit or a sampled
+    /// snippet should always play to its natural length, exactly as it would on
+    /// a real drum machine, instead of being cut short by a short sequencer gate.
     void noteOff();
 
-    /// Silences the voice immediately, discarding any tail.
+    /// Silences the voice immediately, discarding any tail. Only used when the
+    /// engine is reset; stealing goes through `noteOff()` so it stays click-free.
     void reset();
 
     /// Forces a very short release, whatever the voice's own envelope says.
@@ -121,6 +127,19 @@ class Voice
     /// Which concrete timbre this is. Pure virtual rather than a stored field so
     /// a subclass cannot misreport itself.
     virtual VoiceType type() const = 0;
+
+    /// Whether this voice takes its ADSR from the global (UI) settings.
+    virtual bool usesGlobalEnvelope() const
+    {
+        return true;
+    }
+
+    /// True for voices that must always play to their natural end and therefore
+    /// ignore note-off.
+    virtual bool isOneShot() const
+    {
+        return false;
+    }
 
   protected:
     /// Produces one raw, unfiltered, unenveloped sample in roughly [-1, 1].

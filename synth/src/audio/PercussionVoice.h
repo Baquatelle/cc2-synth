@@ -19,6 +19,19 @@ class PercussionVoice : public Voice
         return VoiceType::Percussion;
     }
 
+    /// Drums own their envelope: configureForCharacter() gives each drum in the
+    /// kit its own decay with sustain == 0, so the hit terminates by itself.
+    bool usesGlobalEnvelope() const override
+    {
+        return false;
+    }
+
+    /// A drum hit always rings for its natural length, like a real drum machine.
+    bool isOneShot() const override
+    {
+        return true;
+    }
+
     Character character() const
     {
         return mCharacter;
