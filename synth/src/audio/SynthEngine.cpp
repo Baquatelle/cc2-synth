@@ -2,6 +2,16 @@
 
 #include "FMVoice.h"
 
+#include <cmath>
+
+namespace
+{
+
+/// Makeup gain on the voice mix, applied *before* the master soft-clipper.
+constexpr float kMakeupGain = 3.0f;
+
+} // namespace
+
 SynthEngine::SynthEngine()  = default;
 SynthEngine::~SynthEngine() = default;
 
@@ -30,7 +40,8 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
 
     applyParamsToPool();
 
-    mNextStamp = 1;
+    mSmoothedVolume = masterVolume();
+    mNextStamp      = 1;
 }
 
 void SynthEngine::noteOn(VoiceType aType, int aMidiNote, float aVelocity, std::uint8_t aSourceId)
@@ -63,6 +74,11 @@ void SynthEngine::setResonance(float aValue)
 void SynthEngine::setMorph(float aValue)
 {
     mMorph.store(dsp::clampf(aValue, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
+void SynthEngine::setMasterVolume(float aValue)
+{
+    mMasterVolume.store(dsp::clampf(aValue, 0.0f, 1.0f), std::memory_order_relaxed);
 }
 
 void SynthEngine::setEnvelope(const Envelope::Settings& aSettings)
@@ -194,6 +210,11 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
 
     applyParamsToPool();
 
+    const float targetVolume      = masterVolume();
+    // ~5 ms one-pole smoothing so dragging the volume never steps or zippers.
+    const float volumeCoefficient = dsp::onePoleCoefficient(0.005f, mSampleRate);
+    const float mixScale          = kMakeupGain / std::sqrt(static_cast<float>(kMaxVoices));
+
     for (std::size_t frame = 0; frame < aNumFrames; ++frame)
     {
         float mix = 0.0f;
@@ -205,8 +226,16 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
             }
         }
 
-        // Scaled down so a handful of simultaneous voices does not clip.
-        float out = mix * 0.25f;
+        mSmoothedVolume += (targetVolume - mSmoothedVolume) * volumeCoefficient;
+
+        // Soft-clip so a stack of simultaneous voices compresses instead of
+        // clipping harshly, then guard against NaN/Inf: one bad sample reaching
+        // the driver is a full-scale click.
+        //
+        // mixScale carries kMakeupGain and is applied *inside* softClip(), so
+        // tanh() stays the hard bound on the master bus: out cannot leave
+        // (-1, 1) no matter how many voices sound at once.
+        float out = dsp::sanitize(dsp::softClip(mix * mixScale) * mSmoothedVolume);
 
         for (std::size_t channel = 0; channel < aNumChannels; ++channel)
         {
