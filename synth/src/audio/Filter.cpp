@@ -15,9 +15,8 @@ void Filter::prepare(float aSampleRate)
     mSampleRate = (aSampleRate > 0.0f) ? aSampleRate : 44100.0f;
 
     // Re-clamp the existing cutoff against the *new* rate before deriving
-    // coefficients. Keep well below Nyquist: the tan() prewarp blows up as
-    // cutoff approaches it.
-    mCutoffHz = dsp::clampf(mCutoffHz, kMinCutoff, mSampleRate * 0.45f);
+    // coefficients.
+    mCutoffHz = dsp::clampf(mCutoffHz, kMinCutoff, maxCutoff());
 
     refreshCoefficients();
     reset();
@@ -29,9 +28,15 @@ void Filter::reset()
     mIc2eq = 0.0f;
 }
 
+float Filter::maxCutoff() const
+{
+    // Keep well below Nyquist: the tan() prewarp blows up as cutoff approaches it.
+    return mSampleRate * 0.45f;
+}
+
 void Filter::setCutoff(float aCutoffHz)
 {
-    const float clamped = dsp::clampf(aCutoffHz, kMinCutoff, mSampleRate * 0.45f);
+    const float clamped = dsp::clampf(aCutoffHz, kMinCutoff, maxCutoff());
     if (clamped != mCutoffHz)
     {
         mCutoffHz = clamped;
@@ -47,6 +52,11 @@ void Filter::setResonance(float aResonance)
         mResonance = clamped;
         refreshCoefficients();
     }
+}
+
+void Filter::setMode(Mode aMode)
+{
+    mMode = aMode;
 }
 
 void Filter::refreshCoefficients()
@@ -68,5 +78,14 @@ float Filter::process(float aInput)
     mIc1eq = 2.0f * v1 - mIc1eq;
     mIc2eq = 2.0f * v2 - mIc2eq;
 
-    return v2;
+    switch (mMode)
+    {
+    case Mode::Bandpass:
+        return v1;
+    case Mode::Highpass:
+        return aInput - mK * v1 - v2;
+    case Mode::Lowpass:
+    default:
+        return v2;
+    }
 }
