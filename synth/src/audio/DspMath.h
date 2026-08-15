@@ -27,6 +27,19 @@ inline float flushDenormal(float aValue)
     return (std::fabs(aValue) < kDenormalFloor) ? 0.0f : aValue;
 }
 
+/// Replaces NaN/Inf with silence.
+inline float sanitize(float aValue)
+{
+    return std::isfinite(aValue) ? aValue : 0.0f;
+}
+
+/// Smooth saturation used as the master limiter. Monotonic and bounded to
+/// (-1, 1), so stacked voices compress instead of clipping harshly.
+inline float softClip(float aValue)
+{
+    return std::tanh(aValue);
+}
+
 /// Keeps a normalised phase accumulator (one cycle == 1.0) inside [0, 1).
 inline float wrapPhase(float aPhase)
 {

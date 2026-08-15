@@ -60,6 +60,7 @@ class SynthEngine
     void setCutoff(float aHz);
     void setResonance(float aValue);
     void setMorph(float aValue);
+    void setMasterVolume(float aValue);
     void setEnvelope(const Envelope::Settings& aSettings);
 
     float cutoff() const
@@ -73,6 +74,10 @@ class SynthEngine
     float morph() const
     {
         return mMorph.load(std::memory_order_relaxed);
+    }
+    float masterVolume() const
+    {
+        return mMasterVolume.load(std::memory_order_relaxed);
     }
     Envelope::Settings envelopeSettings() const;
 
@@ -118,6 +123,7 @@ class SynthEngine
     std::atomic<float> mCutoff{8000.0f};
     std::atomic<float> mResonance{0.20f};
     std::atomic<float> mMorph{0.5f};
+    std::atomic<float> mMasterVolume{0.75f};
     std::atomic<float> mAttack{0.01f};
     std::atomic<float> mDecay{0.20f};
     std::atomic<float> mSustain{0.70f};
@@ -129,4 +135,7 @@ class SynthEngine
     /// Monotonically increasing note-on counter, used to identify the oldest
     /// voice when stealing.
     std::uint64_t mNextStamp = 1;
+
+    /// Smoothed master gain, to keep volume changes from stepping.
+    float mSmoothedVolume = 0.75f;
 };
