@@ -8,12 +8,20 @@ namespace dsp
 constexpr float kTwoPi = 6.28318530717958647692f;
 constexpr float kPi    = 3.14159265358979323846f;
 
+/// Anything quieter than this is treated as silence.
+constexpr float kDenormalFloor = 1.0e-25f;
+
 /// Amplitude at which an envelope is considered finished.
 constexpr float kSilence = 1.0e-4f;
 
 inline float clampf(float aValue, float aLow, float aHigh)
 {
     return aValue < aLow ? aLow : (aValue > aHigh ? aHigh : aValue);
+}
+
+inline float flushDenormal(float aValue)
+{
+    return (std::fabs(aValue) < kDenormalFloor) ? 0.0f : aValue;
 }
 
 /// Keeps a normalised phase accumulator (one cycle == 1.0) inside [0, 1).

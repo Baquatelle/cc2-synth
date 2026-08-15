@@ -75,8 +75,8 @@ float Filter::process(float aInput)
     const float v1 = mA1 * mIc1eq + mA2 * v3;
     const float v2 = mIc2eq + mA2 * mIc1eq + mA3 * v3;
 
-    mIc1eq = 2.0f * v1 - mIc1eq;
-    mIc2eq = 2.0f * v2 - mIc2eq;
+    mIc1eq = dsp::flushDenormal(2.0f * v1 - mIc1eq);
+    mIc2eq = dsp::flushDenormal(2.0f * v2 - mIc2eq);
 
     switch (mMode)
     {
