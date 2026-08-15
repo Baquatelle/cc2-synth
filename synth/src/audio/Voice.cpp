@@ -38,6 +38,23 @@ void Voice::reset()
     mFilter.reset();
 }
 
+void Voice::fastRelease()
+{
+    // Nothing to do for a voice the pool already considers free.
+    if (mEnvelope.isFinished())
+    {
+        return;
+    }
+
+    // Shorten the *existing* settings rather than constructing fresh ones.
+    Envelope::Settings panic = mParams.mEnvelope;
+    panic.mRelease           = dsp::kPanicReleaseSeconds;
+    mEnvelope.setSettings(panic);
+
+    // Call the envelope directly, so the shortened release starts right away.
+    mEnvelope.noteOff();
+}
+
 void Voice::setParams(const VoiceParams& aParams)
 {
     mParams = aParams;

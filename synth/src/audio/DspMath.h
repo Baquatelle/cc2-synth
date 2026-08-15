@@ -14,6 +14,9 @@ constexpr float kDenormalFloor = 1.0e-25f;
 /// Amplitude at which an envelope is considered finished.
 constexpr float kSilence = 1.0e-4f;
 
+/// Release time used by the panic path (all-notes-off).
+constexpr float kPanicReleaseSeconds = 0.005f;
+
 inline float clampf(float aValue, float aLow, float aHigh)
 {
     return aValue < aLow ? aLow : (aValue > aHigh ? aHigh : aValue);
