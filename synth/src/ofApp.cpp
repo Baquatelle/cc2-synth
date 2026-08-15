@@ -91,6 +91,15 @@ void ofApp::keyPressed(int aKey)
 {
     switch (aKey)
     {
+    case '1':
+        mActiveVoiceType = VoiceType::FM;
+        return;
+    case '2':
+        mActiveVoiceType = VoiceType::Percussion;
+        return;
+    case '3':
+        mActiveVoiceType = VoiceType::Sampler;
+        return;
     case 'z':
     case 'Z':
         mOctaveOffset = std::max(mOctaveOffset - 1, -3);
@@ -118,20 +127,25 @@ void ofApp::keyPressed(int aKey)
         return;
     }
 
-    mHeldKeys[aKey] = note;
+    // Record the voice type along with the pitch, so the release later goes to the
+    // type this note actually started on even if the selection changes meanwhile.
+    mHeldKeys[aKey] = HeldNote{note, mActiveVoiceType};
 
-    mEngine.noteOn(VoiceType::FM, note, 0.95f, 0);
+    mEngine.noteOn(mActiveVoiceType, note, 0.95f, 0);
 }
 
 void ofApp::keyReleased(int aKey)
 {
+    // Look up what we actually started, rather than recomputing it: the octave or
+    // the selected voice type may have changed while the key was held, and
+    // releasing the wrong note or the wrong type would leave the original stuck on.
     const auto held = mHeldKeys.find(aKey);
     if (held == mHeldKeys.end())
     {
         return;
     }
 
-    mEngine.noteOff(VoiceType::FM, held->second, 0);
+    mEngine.noteOff(held->second.mVoiceType, held->second.mMidiNote, 0);
     mHeldKeys.erase(held);
 }
 
