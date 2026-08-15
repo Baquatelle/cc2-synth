@@ -12,6 +12,9 @@ constexpr float kMakeupGain = 3.0f;
 
 } // namespace
 
+static_assert((SynthEngine::kScopeSize & (SynthEngine::kScopeSize - 1)) == 0,
+              "kScopeSize must be a power of two: the scope ring wraps with a bit mask");
+
 SynthEngine::SynthEngine()  = default;
 SynthEngine::~SynthEngine() = default;
 
@@ -40,25 +43,38 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
 
     applyParamsToPool();
 
+    mScope.fill(0.0f);
+    mScopeWrite.store(0, std::memory_order_relaxed);
+    mActiveVoices.store(0, std::memory_order_relaxed);
+    mPeakLevel.store(0.0f, std::memory_order_relaxed);
     mSmoothedVolume = masterVolume();
     mNextStamp      = 1;
 }
 
 void SynthEngine::noteOn(VoiceType aType, int aMidiNote, float aVelocity, std::uint8_t aSourceId)
 {
-    mEvents.push(NoteEvent::noteOn(aMidiNote, aVelocity, aType, aSourceId));
+    if (!mEvents.push(NoteEvent::noteOn(aMidiNote, aVelocity, aType, aSourceId)))
+    {
+        mDroppedEvents.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 void SynthEngine::noteOff(VoiceType aType, int aMidiNote, std::uint8_t aSourceId)
 {
-    mEvents.push(NoteEvent::noteOff(aMidiNote, aType, aSourceId));
+    if (!mEvents.push(NoteEvent::noteOff(aMidiNote, aType, aSourceId)))
+    {
+        mDroppedEvents.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 void SynthEngine::allNotesOff()
 {
     // Queued, not applied here: releasing voices directly from the UI thread
     // would mutate objects that process() is concurrently rendering.
-    mEvents.push(NoteEvent::allNotesOff());
+    if (!mEvents.push(NoteEvent::allNotesOff()))
+    {
+        mDroppedEvents.fetch_add(1, std::memory_order_relaxed);
+    }
 }
 
 void SynthEngine::setCutoff(float aHz)
@@ -214,6 +230,8 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
     // ~5 ms one-pole smoothing so dragging the volume never steps or zippers.
     const float volumeCoefficient = dsp::onePoleCoefficient(0.005f, mSampleRate);
     const float mixScale          = kMakeupGain / std::sqrt(static_cast<float>(kMaxVoices));
+    std::size_t scopeWrite        = mScopeWrite.load(std::memory_order_relaxed);
+    float       peak              = 0.0f;
 
     for (std::size_t frame = 0; frame < aNumFrames; ++frame)
     {
@@ -237,9 +255,45 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
         // (-1, 1) no matter how many voices sound at once.
         float out = dsp::sanitize(dsp::softClip(mix * mixScale) * mSmoothedVolume);
 
+        const float magnitude = std::fabs(out);
+        if (magnitude > peak)
+        {
+            peak = magnitude;
+        }
+
+        mScope[scopeWrite] = out;
+        // kScopeSize is a power of two, so the wrap is a single mask.
+        scopeWrite         = (scopeWrite + 1) & (kScopeSize - 1);
+
         for (std::size_t channel = 0; channel < aNumChannels; ++channel)
         {
             aBuffer[frame * aNumChannels + channel] = out;
         }
+    }
+
+    // Release/acquire pairs with copyScope() so the UI sees the samples that
+    // belong to the cursor it reads.
+    mScopeWrite.store(scopeWrite, std::memory_order_release);
+    mPeakLevel.store(peak, std::memory_order_relaxed);
+
+    std::size_t active = 0;
+    for (const auto& voice : mVoices)
+    {
+        if (voice->isActive())
+        {
+            ++active;
+        }
+    }
+    mActiveVoices.store(active, std::memory_order_relaxed);
+}
+
+void SynthEngine::copyScope(std::vector<float>& aOutSamples) const
+{
+    aOutSamples.resize(kScopeSize);
+    // Start at the write cursor so the copy runs oldest -> newest.
+    const std::size_t start = mScopeWrite.load(std::memory_order_acquire);
+    for (std::size_t i = 0; i < kScopeSize; ++i)
+    {
+        aOutSamples[i] = mScope[(start + i) & (kScopeSize - 1)];
     }
 }

@@ -4,6 +4,7 @@
 #include "Note.h"
 #include "Voice.h"
 
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <memory>
@@ -30,6 +31,9 @@ class SynthEngine
   public:
     /// Number of simultaneous notes the engine can sound.
     static constexpr std::size_t kMaxVoices = 16;
+
+    /// Samples retained for the oscilloscope. A power of two keeps the wrap cheap.
+    static constexpr std::size_t kScopeSize = 2048;
 
     SynthEngine();
     ~SynthEngine();
@@ -88,10 +92,33 @@ class SynthEngine
     /// free of openFrameworks.
     void process(float* aBuffer, std::size_t aNumFrames, std::size_t aNumChannels);
 
+    // --- Introspection (UI thread; approximate by nature) --------------------
+
+    std::size_t activeVoiceCount() const
+    {
+        return mActiveVoices.load(std::memory_order_relaxed);
+    }
+
+    /// Peak absolute output level of the last block, for meters.
+    float peakLevel() const
+    {
+        return mPeakLevel.load(std::memory_order_relaxed);
+    }
+
+    /// Number of note events dropped because the queue was full. Should stay 0;
+    /// shown in the status panel as a diagnostic.
+    std::size_t droppedEvents() const
+    {
+        return mDroppedEvents.load(std::memory_order_relaxed);
+    }
+
     float sampleRate() const
     {
         return mSampleRate;
     }
+
+    /// Copies the most recent output samples, oldest first, for the oscilloscope.
+    void copyScope(std::vector<float>& aOutSamples) const;
 
     /// Read-only view of the pool.
     const std::vector<std::unique_ptr<Voice>>& voices() const
@@ -128,6 +155,15 @@ class SynthEngine
     std::atomic<float> mDecay{0.20f};
     std::atomic<float> mSustain{0.70f};
     std::atomic<float> mRelease{0.30f};
+
+    // Telemetry published by the audio thread.
+    std::atomic<std::size_t> mActiveVoices{0};
+    std::atomic<float>       mPeakLevel{0.0f};
+    std::atomic<std::size_t> mDroppedEvents{0};
+
+    // Oscilloscope ring buffer, written by the audio thread and read by the UI.
+    std::array<float, kScopeSize> mScope{};
+    std::atomic<std::size_t>      mScopeWrite{0};
 
     float       mSampleRate     = 44100.0f;
     std::size_t mOutputChannels = 2;
