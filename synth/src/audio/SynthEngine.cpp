@@ -29,6 +29,8 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
     }
 
     applyParamsToPool();
+
+    mNextStamp = 1;
 }
 
 void SynthEngine::noteOn(VoiceType aType, int aMidiNote, float aVelocity, std::uint8_t aSourceId)
@@ -88,19 +90,52 @@ void SynthEngine::applyParamsToPool()
     }
 }
 
-Voice* SynthEngine::acquireVoice(VoiceType aType)
+Voice* SynthEngine::acquireVoice(VoiceType aType, std::uint64_t& aOutStamp)
 {
     (void)aType;
 
+    // Prefer a genuinely free voice.
     for (std::size_t i = 0; i < mVoices.size(); ++i)
     {
         if (!mVoices[i]->isActive())
         {
+            aOutStamp = mNextStamp++;
             return mVoices[i].get();
         }
     }
 
-    return nullptr;
+    // Then one that is already releasing (its tail is quietest).
+    Voice*        candidate = nullptr;
+    std::uint64_t oldest    = ~std::uint64_t(0);
+
+    for (std::size_t i = 0; i < mVoices.size(); ++i)
+    {
+        if (mVoices[i]->isReleasing() && mVoices[i]->stamp() < oldest)
+        {
+            oldest    = mVoices[i]->stamp();
+            candidate = mVoices[i].get();
+        }
+    }
+
+    // Finally, steal the oldest sounding voice.
+    if (!candidate)
+    {
+        oldest = ~std::uint64_t(0);
+        for (std::size_t i = 0; i < mVoices.size(); ++i)
+        {
+            if (mVoices[i]->stamp() < oldest)
+            {
+                oldest    = mVoices[i]->stamp();
+                candidate = mVoices[i].get();
+            }
+        }
+    }
+
+    if (candidate)
+    {
+        aOutStamp = mNextStamp++;
+    }
+    return candidate;
 }
 
 void SynthEngine::handleEvent(const NoteEvent& aEvent)
@@ -108,9 +143,10 @@ void SynthEngine::handleEvent(const NoteEvent& aEvent)
     // Audio thread: it is safe to touch voices directly from here.
     if (aEvent.mKind == NoteEvent::Kind::NoteOn)
     {
-        if (Voice* voice = acquireVoice(aEvent.mVoiceType))
+        std::uint64_t stamp = 0;
+        if (Voice* voice = acquireVoice(aEvent.mVoiceType, stamp))
         {
-            voice->noteOn(aEvent.mMidiNote, aEvent.mVelocity, aEvent.mSourceId, 0);
+            voice->noteOn(aEvent.mMidiNote, aEvent.mVelocity, aEvent.mSourceId, stamp);
         }
         return;
     }

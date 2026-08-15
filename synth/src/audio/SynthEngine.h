@@ -93,7 +93,7 @@ class SynthEngine
 
   private:
     void   handleEvent(const NoteEvent& aEvent);
-    Voice* acquireVoice(VoiceType aType);
+    Voice* acquireVoice(VoiceType aType, std::uint64_t& aOutStamp);
     void   applyParamsToPool();
 
     // ---- Composition: the engine exclusively owns every voice. ----
@@ -122,4 +122,8 @@ class SynthEngine
 
     float       mSampleRate     = 44100.0f;
     std::size_t mOutputChannels = 2;
+
+    /// Monotonically increasing note-on counter, used to identify the oldest
+    /// voice when stealing.
+    std::uint64_t mNextStamp = 1;
 };
