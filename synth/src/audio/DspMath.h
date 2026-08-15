@@ -8,6 +8,9 @@ namespace dsp
 constexpr float kTwoPi = 6.28318530717958647692f;
 constexpr float kPi    = 3.14159265358979323846f;
 
+/// Amplitude at which an envelope is considered finished.
+constexpr float kSilence = 1.0e-4f;
+
 inline float clampf(float aValue, float aLow, float aHigh)
 {
     return aValue < aLow ? aLow : (aValue > aHigh ? aHigh : aValue);
@@ -21,6 +24,18 @@ inline float wrapPhase(float aPhase)
         aPhase -= 1.0f;
     }
     return aPhase;
+}
+
+/// Per-sample multiplier that decays 1.0 down to kSilence over `aSeconds`.
+/// Returns 0 for a non-positive time so the caller's stage ends immediately.
+inline float decayCoefficient(float aSeconds, float aSampleRate)
+{
+    if (aSeconds <= 0.0f || aSampleRate <= 0.0f)
+    {
+        return 0.0f;
+    }
+    // ln(1 / kSilence) == 9.2103404 for kSilence == 1e-4.
+    return std::exp(-9.2103404f / (aSeconds * aSampleRate));
 }
 
 } // namespace dsp

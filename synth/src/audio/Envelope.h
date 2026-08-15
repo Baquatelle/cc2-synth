@@ -3,6 +3,10 @@
 #include "DspMath.h"
 
 /// Classic ADSR envelope generator.
+///
+/// Owned *by value* by every Voice (see Voice.h) -- an envelope has no meaning
+/// or lifetime outside the voice it shapes, which is exactly the "part" side of
+/// a composition relationship.
 class Envelope
 {
   public:
@@ -69,6 +73,7 @@ class Envelope
     }
 
     /// True once a release has run to completion (or before the first noteOn).
+    /// The voice pool uses this -- and only this -- to decide a voice is free.
     bool isFinished() const
     {
         return mStage == Stage::Idle;
@@ -80,15 +85,15 @@ class Envelope
     }
 
   private:
-    void refreshRates();
+    void refreshCoefficients();
 
     Settings mSettings;
     Stage    mStage      = Stage::Idle;
     float    mSampleRate = 44100.0f;
     float    mLevel      = 0.0f;
 
-    // Per-sample increments, recomputed only when settings change.
-    float mAttackRate  = 1.0f;
-    float mDecayRate   = 1.0f;
-    float mReleaseRate = 1.0f;
+    // Per-sample increments/coefficients, recomputed only when settings change.
+    float mAttackRate         = 1.0f;
+    float mDecayCoefficient   = 1.0f;
+    float mReleaseCoefficient = 1.0f;
 };

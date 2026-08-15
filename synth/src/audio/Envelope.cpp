@@ -3,7 +3,7 @@
 void Envelope::prepare(float aSampleRate)
 {
     mSampleRate = (aSampleRate > 0.0f) ? aSampleRate : 44100.0f;
-    refreshRates();
+    refreshCoefficients();
     reset();
 }
 
@@ -21,17 +21,18 @@ void Envelope::setSettings(const Settings& aSettings)
     }
 
     mSettings = clamped;
-    refreshRates();
+    refreshCoefficients();
 }
 
-void Envelope::refreshRates()
+void Envelope::refreshCoefficients()
 {
-    // Every stage is a linear ramp, so the per-sample step is simply the full
-    // span divided by the number of samples the stage should take. A rate of
-    // 1.0f means "instant", which is what a zero time should do.
-    mAttackRate  = (mSettings.mAttack > 0.0f) ? (1.0f / (mSettings.mAttack * mSampleRate)) : 1.0f;
-    mDecayRate   = (mSettings.mDecay > 0.0f) ? (1.0f / (mSettings.mDecay * mSampleRate)) : 1.0f;
-    mReleaseRate = (mSettings.mRelease > 0.0f) ? (1.0f / (mSettings.mRelease * mSampleRate)) : 1.0f;
+    // Attack is linear: it is short enough that the curve shape does not matter,
+    // and a linear ramp reaches the peak in exactly the requested time.
+    mAttackRate = (mSettings.mAttack > 0.0f) ? (1.0f / (mSettings.mAttack * mSampleRate)) : 1.0f;
+
+    // Decay and release are exponential, which is how natural sounds behave.
+    mDecayCoefficient   = dsp::decayCoefficient(mSettings.mDecay, mSampleRate);
+    mReleaseCoefficient = dsp::decayCoefficient(mSettings.mRelease, mSampleRate);
 }
 
 void Envelope::noteOn()
@@ -74,19 +75,24 @@ float Envelope::process()
         break;
 
     case Stage::Decay:
-        mLevel -= mDecayRate;
-        if (mLevel <= mSettings.mSustain)
+        if (mSettings.mSustain <= dsp::kSilence)
         {
-            mLevel = mSettings.mSustain;
-            if (mLevel <= 0.0f)
+            mLevel *= mDecayCoefficient;
+            if (mLevel <= dsp::kSilence)
             {
-                // A zero sustain means the note dies at the end of the decay
-                // ramp, so there is nothing left to hold.
                 mLevel = 0.0f;
                 mStage = Stage::Idle;
             }
-            else
+        }
+        else
+        {
+            // Decay exponentially towards the sustain level. Approaching a
+            // non-zero asymptote needs the offset form, otherwise the level
+            // would keep sliding past the sustain level towards zero.
+            mLevel = mSettings.mSustain + (mLevel - mSettings.mSustain) * mDecayCoefficient;
+            if (mLevel - mSettings.mSustain <= dsp::kSilence)
             {
+                mLevel = mSettings.mSustain;
                 mStage = Stage::Sustain;
             }
         }
@@ -97,8 +103,8 @@ float Envelope::process()
         break;
 
     case Stage::Release:
-        mLevel -= mReleaseRate;
-        if (mLevel <= 0.0f)
+        mLevel *= mReleaseCoefficient;
+        if (mLevel <= dsp::kSilence)
         {
             mLevel = 0.0f;
             mStage = Stage::Idle;
