@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 
 namespace dsp
 {
@@ -72,5 +73,31 @@ inline float decayCoefficient(float aSeconds, float aSampleRate)
     // ln(1 / kSilence) == 9.2103404 for kSilence == 1e-4.
     return std::exp(-9.2103404f / (aSeconds * aSampleRate));
 }
+
+/// xorshift32 white noise.
+class Noise
+{
+  public:
+    explicit Noise(std::uint32_t aSeed = 0x1234567u) : mState(aSeed ? aSeed : 1u)
+    {
+    }
+
+    void reseed(std::uint32_t aSeed)
+    {
+        mState = aSeed ? aSeed : 1u;
+    }
+
+    /// Uniform white noise in roughly [-1, 1).
+    float next()
+    {
+        mState ^= mState << 13;
+        mState ^= mState >> 17;
+        mState ^= mState << 5;
+        return static_cast<float>(static_cast<std::int32_t>(mState)) * (1.0f / 2147483648.0f);
+    }
+
+  private:
+    std::uint32_t mState;
+};
 
 } // namespace dsp
