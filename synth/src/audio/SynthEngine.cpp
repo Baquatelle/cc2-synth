@@ -27,6 +27,8 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
     {
         voice->prepare(mSampleRate);
     }
+
+    applyParamsToPool();
 }
 
 void SynthEngine::noteOn(VoiceType aType, int aMidiNote, float aVelocity, std::uint8_t aSourceId)
@@ -37,6 +39,53 @@ void SynthEngine::noteOn(VoiceType aType, int aMidiNote, float aVelocity, std::u
 void SynthEngine::noteOff(VoiceType aType, int aMidiNote, std::uint8_t aSourceId)
 {
     mEvents.push(NoteEvent::noteOff(aMidiNote, aType, aSourceId));
+}
+
+void SynthEngine::setCutoff(float aHz)
+{
+    mCutoff.store(dsp::clampf(aHz, 20.0f, 18000.0f), std::memory_order_relaxed);
+}
+
+void SynthEngine::setResonance(float aValue)
+{
+    mResonance.store(dsp::clampf(aValue, 0.0f, 0.95f), std::memory_order_relaxed);
+}
+
+void SynthEngine::setMorph(float aValue)
+{
+    mMorph.store(dsp::clampf(aValue, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
+void SynthEngine::setEnvelope(const Envelope::Settings& aSettings)
+{
+    mAttack.store(aSettings.mAttack, std::memory_order_relaxed);
+    mDecay.store(aSettings.mDecay, std::memory_order_relaxed);
+    mSustain.store(aSettings.mSustain, std::memory_order_relaxed);
+    mRelease.store(aSettings.mRelease, std::memory_order_relaxed);
+}
+
+Envelope::Settings SynthEngine::envelopeSettings() const
+{
+    Envelope::Settings settings;
+    settings.mAttack  = mAttack.load(std::memory_order_relaxed);
+    settings.mDecay   = mDecay.load(std::memory_order_relaxed);
+    settings.mSustain = mSustain.load(std::memory_order_relaxed);
+    settings.mRelease = mRelease.load(std::memory_order_relaxed);
+    return settings;
+}
+
+void SynthEngine::applyParamsToPool()
+{
+    VoiceParams params;
+    params.mCutoffHz  = cutoff();
+    params.mResonance = resonance();
+    params.mMorph     = morph();
+    params.mEnvelope  = envelopeSettings();
+
+    for (auto& voice : mVoices)
+    {
+        voice->setParams(params);
+    }
 }
 
 Voice* SynthEngine::acquireVoice(VoiceType aType)
@@ -90,6 +139,8 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
     {
         handleEvent(event);
     }
+
+    applyParamsToPool();
 
     for (std::size_t frame = 0; frame < aNumFrames; ++frame)
     {
