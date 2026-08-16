@@ -1,10 +1,12 @@
 #pragma once
 
+#include "audio/SampleLibrary.h"
 #include "audio/SynthEngine.h"
 
 #include "ofMain.h"
 
 #include <map>
+#include <string>
 
 /// The application root.
 class ofApp : public ofBaseApp
@@ -25,10 +27,14 @@ class ofApp : public ofBaseApp
   private:
     void startAudio();
 
+    void loadSamples();
+
     /// Maps a keyboard key to a MIDI note, or returns -1.
     int noteForKey(int aKey) const;
 
-    SynthEngine mEngine;
+    // ---- Owned by value: composition. ----
+    SynthEngine   mEngine;
+    SampleLibrary mSampleLibrary;
 
     ofSoundStream mSoundStream;
 
