@@ -3,6 +3,7 @@
 #include "audio/SampleLibrary.h"
 #include "audio/SynthEngine.h"
 #include "ui/Oscilloscope.h"
+#include "ui/ParticleField.h"
 #include "ui/XYPad.h"
 
 #include "ofMain.h"
@@ -38,11 +39,15 @@ class ofApp : public ofBaseApp
     /// Maps a keyboard key to a MIDI note, or returns -1.
     int noteForKey(int aKey) const;
 
+    /// Screen position for a note's particle burst.
+    glm::vec2 particleOriginFor(int aMidiNote) const;
+
     // ---- Owned by value: composition. ----
     SynthEngine   mEngine;
     SampleLibrary mSampleLibrary;
     XYPad         mXyPad;
     Oscilloscope  mOscilloscope;
+    ParticleField mParticles;
 
     ofSoundStream mSoundStream;
 
@@ -68,4 +73,7 @@ class ofApp : public ofBaseApp
     // Layout rectangles, recomputed on resize.
     ofRectangle mScopeRect;
     ofRectangle mPadRect;
+    ofRectangle mGridRect;
+
+    float mLastFrameTime = 0.0f;
 };
