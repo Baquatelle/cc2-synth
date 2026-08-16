@@ -2,7 +2,10 @@
 
 #include "FMVoice.h"
 #include "PercussionVoice.h"
+#include "SampleLibrary.h"
+#include "SamplerVoice.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace
@@ -50,6 +53,9 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
             case VoiceType::Percussion:
                 mVoices.emplace_back(std::make_unique<PercussionVoice>());
                 break;
+            case VoiceType::Sampler:
+                mVoices.emplace_back(std::make_unique<SamplerVoice>());
+                break;
             }
         }
         range.mEnd                = mVoices.size();
@@ -58,11 +64,15 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
 
     buildRange(VoiceType::FM);
     buildRange(VoiceType::Percussion);
+    buildRange(VoiceType::Sampler);
 
     for (auto& voice : mVoices)
     {
         voice->prepare(mSampleRate);
     }
+
+    // Re-attach the library to the freshly built sampler voices.
+    setSampleLibrary(mSampleLibrary);
 
     applyParamsToPool();
 
@@ -72,6 +82,23 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
     mPeakLevel.store(0.0f, std::memory_order_relaxed);
     mSmoothedVolume = masterVolume();
     mNextStamp      = 1;
+}
+
+void SynthEngine::setSampleLibrary(const SampleLibrary* aLibrary)
+{
+    // Association: stored, used, never owned. Applied before the stream starts,
+    // which is why walking the pool is safe here.
+    mSampleLibrary = aLibrary;
+
+    const PoolRange& range = mRanges[typeIndex(VoiceType::Sampler)];
+    for (std::size_t i = range.mBegin; i < range.mEnd && i < mVoices.size(); ++i)
+    {
+        if (auto* sampler = dynamic_cast<SamplerVoice*>(mVoices[i].get()))
+        {
+            sampler->setLibrary(aLibrary);
+            sampler->setSampleIndex(samplerSampleIndex());
+        }
+    }
 }
 
 void SynthEngine::noteOn(VoiceType aType, int aMidiNote, float aVelocity, std::uint8_t aSourceId)
@@ -136,6 +163,11 @@ Envelope::Settings SynthEngine::envelopeSettings() const
     settings.mSustain = mSustain.load(std::memory_order_relaxed);
     settings.mRelease = mRelease.load(std::memory_order_relaxed);
     return settings;
+}
+
+void SynthEngine::setSamplerSampleIndex(std::size_t aIndex)
+{
+    mSamplerSampleIndex.store(aIndex, std::memory_order_relaxed);
 }
 
 void SynthEngine::applyParamsToPool()
@@ -223,6 +255,13 @@ void SynthEngine::handleEvent(const NoteEvent& aEvent)
         std::uint64_t stamp = 0;
         if (Voice* voice = acquireVoice(aEvent.mVoiceType, stamp))
         {
+            // Tell a sampler which recording to use before it starts. Done here,
+            // at note-on on the audio thread, rather than by the UI thread
+            // walking the pool.
+            if (aEvent.mVoiceType == VoiceType::Sampler)
+            {
+                static_cast<SamplerVoice*>(voice)->setSampleIndex(samplerSampleIndex());
+            }
             voice->noteOn(aEvent.mMidiNote, aEvent.mVelocity, aEvent.mSourceId, stamp);
         }
         return;
