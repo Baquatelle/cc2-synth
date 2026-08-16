@@ -44,6 +44,7 @@ void ofApp::setup()
     // ---- Wire the associations. -----------------------------------------
     // Every member already exists (they are by-value members of this object), so
     // these pointers are valid for the whole run and none of them imply ownership.
+    mXyPad.attach(&mEngine);
     mOscilloscope.attach(&mEngine);
 
     startAudio();
@@ -104,6 +105,10 @@ void ofApp::layout()
     const float columnWidth = width - margin * 2.0f;
 
     mScopeRect.set(margin, margin, columnWidth, height * 0.26f);
+
+    const float middleY  = mScopeRect.getBottom() + margin;
+    const float padWidth = columnWidth * 0.36f;
+    mPadRect.set(margin, middleY, padWidth, height * 0.30f);
 }
 
 void ofApp::windowResized(int aW, int aH)
@@ -121,6 +126,7 @@ void ofApp::update()
 void ofApp::draw()
 {
     mOscilloscope.draw(mScopeRect.x, mScopeRect.y, mScopeRect.width, mScopeRect.height);
+    mXyPad.draw(mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
 }
 
 int ofApp::noteForKey(int aKey) const
@@ -211,6 +217,26 @@ void ofApp::keyReleased(int aKey)
 
     mEngine.noteOff(held->second.mVoiceType, held->second.mMidiNote, 0);
     mHeldKeys.erase(held);
+}
+
+void ofApp::mousePressed(int aX, int aY, int aButton)
+{
+    (void)aButton;
+
+    const auto mouseX = static_cast<float>(aX);
+    const auto mouseY = static_cast<float>(aY);
+
+    mXyPad.handleDrag(mouseX, mouseY, mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
+}
+
+void ofApp::mouseDragged(int aX, int aY, int aButton)
+{
+    (void)aButton;
+
+    const auto mouseX = static_cast<float>(aX);
+    const auto mouseY = static_cast<float>(aY);
+
+    mXyPad.handleDrag(mouseX, mouseY, mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
 }
 
 void ofApp::exit()
