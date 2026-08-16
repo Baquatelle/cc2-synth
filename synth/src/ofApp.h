@@ -3,6 +3,7 @@
 #include "audio/SampleLibrary.h"
 #include "audio/SynthEngine.h"
 #include "ui/Oscilloscope.h"
+#include "ui/XYPad.h"
 
 #include "ofMain.h"
 
@@ -20,6 +21,8 @@ class ofApp : public ofBaseApp
 
     void keyPressed(int aKey) override;
     void keyReleased(int aKey) override;
+    void mousePressed(int aX, int aY, int aButton) override;
+    void mouseDragged(int aX, int aY, int aButton) override;
     void windowResized(int aW, int aH) override;
 
     /// The audio callback. This is the only openFrameworks-facing part of the audio
@@ -38,6 +41,7 @@ class ofApp : public ofBaseApp
     // ---- Owned by value: composition. ----
     SynthEngine   mEngine;
     SampleLibrary mSampleLibrary;
+    XYPad         mXyPad;
     Oscilloscope  mOscilloscope;
 
     ofSoundStream mSoundStream;
@@ -63,4 +67,5 @@ class ofApp : public ofBaseApp
 
     // Layout rectangles, recomputed on resize.
     ofRectangle mScopeRect;
+    ofRectangle mPadRect;
 };
