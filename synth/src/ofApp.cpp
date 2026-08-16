@@ -39,7 +39,32 @@ void ofApp::setup()
     ofBackground(18);
     ofSetCircleResolution(32);
 
+    loadSamples();
+
     startAudio();
+}
+
+void ofApp::loadSamples()
+{
+    // Prepared offline by scripts/bootstrap.py. ofToDataPath keeps this working
+    // identically on macOS (inside the .app bundle) and on Windows (next to the
+    // .exe), and forward slashes are accepted on both.
+    const std::string directory = ofToDataPath("samples", true);
+    const std::size_t loaded    = mSampleLibrary.loadDirectory(directory);
+
+    if (loaded == 0)
+    {
+        ofLogWarning("ofApp") << "no samples found in " << directory
+                              << " -- run 'python3 scripts/bootstrap.py' to generate them. "
+                                 "The FM and percussion voices still work.";
+    }
+    else
+    {
+        ofLogNotice("ofApp") << "loaded " << loaded << " samples from " << directory;
+    }
+
+    // Attached before the stream starts, so no synchronisation is required.
+    mEngine.setSampleLibrary(&mSampleLibrary);
 }
 
 void ofApp::startAudio()
@@ -107,6 +132,20 @@ void ofApp::keyPressed(int aKey)
     case 'x':
     case 'X':
         mOctaveOffset = std::min(mOctaveOffset + 1, 3);
+        return;
+    case ',':
+        // Cycle the sampler's recording downwards.
+        if (mSampleLibrary.size() > 0)
+        {
+            const std::size_t count = mSampleLibrary.size();
+            mEngine.setSamplerSampleIndex((mEngine.samplerSampleIndex() + count - 1) % count);
+        }
+        return;
+    case '.':
+        if (mSampleLibrary.size() > 0)
+        {
+            mEngine.setSamplerSampleIndex((mEngine.samplerSampleIndex() + 1) % mSampleLibrary.size());
+        }
         return;
     case OF_KEY_ESC:
         mEngine.allNotesOff();
