@@ -8,7 +8,10 @@
 #include <atomic>
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
+
+class SampleLibrary;
 
 /// Polyphonic synthesiser: owns the voices, mixes them, and is the sole writer of
 /// the audio output buffer.
@@ -49,6 +52,10 @@ class SynthEngine
     /// **The audio stream must be stopped first.**
     void prepare(float aSampleRate, std::size_t aOutputChannels);
 
+    /// Attaches the shared sample library (association -- not owned).
+    /// Propagated to every SamplerVoice in the pool.
+    void setSampleLibrary(const SampleLibrary* aLibrary);
+
     // --- Note input (called from the UI/sequencer thread) ---------------------
 
     /// Enqueues a note-on. Thread-safe, non-blocking, never allocates.
@@ -86,11 +93,18 @@ class SynthEngine
     }
     Envelope::Settings envelopeSettings() const;
 
+    /// Which sample a sampler note selects.
+    void        setSamplerSampleIndex(std::size_t aIndex);
+    std::size_t samplerSampleIndex() const
+    {
+        return mSamplerSampleIndex.load(std::memory_order_relaxed);
+    }
+
     // --- Audio thread --------------------------------------------------------
 
     /// Fills `aBuffer` with `aNumFrames` interleaved frames of `aNumChannels`.
     /// Takes a raw pointer rather than an ofSoundBuffer so the whole engine stays
-    /// free of openFrameworks.
+    /// free of openFrameworks and can run under the headless self-test.
     void process(float* aBuffer, std::size_t aNumFrames, std::size_t aNumChannels);
 
     // --- Introspection (UI thread; approximate by nature) --------------------
@@ -121,7 +135,7 @@ class SynthEngine
     /// Copies the most recent output samples, oldest first, for the oscilloscope.
     void copyScope(std::vector<float>& aOutSamples) const;
 
-    /// Read-only view of the pool.
+    /// Read-only view of the pool, so the visualisers can react to real voice state.
     const std::vector<std::unique_ptr<Voice>>& voices() const
     {
         return mVoices;
@@ -143,6 +157,9 @@ class SynthEngine
     std::vector<std::unique_ptr<Voice>>    mVoices;
     std::array<PoolRange, kVoiceTypeCount> mRanges{};
 
+    /// Association: used to hand samples to the sampler voices, never owned.
+    const SampleLibrary* mSampleLibrary = nullptr;
+
     EventQueue<NoteEvent, 256> mEvents;
 
     // The class contract above promises the audio thread never locks. A
@@ -156,14 +173,15 @@ class SynthEngine
 
     // Control parameters. Atomic because the UI thread writes them while the
     // audio thread reads them every block.
-    std::atomic<float> mCutoff{8000.0f};
-    std::atomic<float> mResonance{0.20f};
-    std::atomic<float> mMorph{0.5f};
-    std::atomic<float> mMasterVolume{0.75f};
-    std::atomic<float> mAttack{0.01f};
-    std::atomic<float> mDecay{0.20f};
-    std::atomic<float> mSustain{0.70f};
-    std::atomic<float> mRelease{0.30f};
+    std::atomic<float>       mCutoff{8000.0f};
+    std::atomic<float>       mResonance{0.20f};
+    std::atomic<float>       mMorph{0.5f};
+    std::atomic<float>       mMasterVolume{0.75f};
+    std::atomic<float>       mAttack{0.01f};
+    std::atomic<float>       mDecay{0.20f};
+    std::atomic<float>       mSustain{0.70f};
+    std::atomic<float>       mRelease{0.30f};
+    std::atomic<std::size_t> mSamplerSampleIndex{0};
 
     // Telemetry published by the audio thread.
     std::atomic<std::size_t> mActiveVoices{0};

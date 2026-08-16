@@ -37,6 +37,13 @@ inline float midiToFrequency(float aMidiNote)
     return 440.0f * std::pow(2.0f, (aMidiNote - 69.0f) / 12.0f);
 }
 
+/// Playback-rate ratio needed to hear `aMidiNote` from a sample recorded at
+/// `aBaseMidiNote`. Used by SamplerVoice for pitch shifting.
+inline float pitchRatio(float aMidiNote, float aBaseMidiNote)
+{
+    return std::pow(2.0f, (aMidiNote - aBaseMidiNote) / 12.0f);
+}
+
 } // namespace notes
 
 /// A single message from the UI thread to the audio thread.
