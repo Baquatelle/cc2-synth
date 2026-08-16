@@ -46,9 +46,12 @@ void ofApp::setup()
     // these pointers are valid for the whole run and none of them imply ownership.
     mXyPad.attach(&mEngine);
     mOscilloscope.attach(&mEngine);
+    mParticles.attach(&mEngine);
 
     startAudio();
     layout();
+
+    mLastFrameTime = ofGetElapsedTimef();
 }
 
 void ofApp::loadSamples()
@@ -109,6 +112,9 @@ void ofApp::layout()
     const float middleY  = mScopeRect.getBottom() + margin;
     const float padWidth = columnWidth * 0.36f;
     mPadRect.set(margin, middleY, padWidth, height * 0.30f);
+
+    const float gridY = mPadRect.getBottom() + margin;
+    mGridRect.set(margin, gridY, columnWidth, height - gridY - margin);
 }
 
 void ofApp::windowResized(int aW, int aH)
@@ -120,11 +126,22 @@ void ofApp::windowResized(int aW, int aH)
 
 void ofApp::update()
 {
+    // Real elapsed time rather than a fixed step.
+    const float now   = ofGetElapsedTimef();
+    float       delta = now - mLastFrameTime;
+    mLastFrameTime    = now;
+
+    delta = dsp::clampf(delta, 0.0f, 0.1f);
+
     mOscilloscope.update();
+    mParticles.update(delta);
 }
 
 void ofApp::draw()
 {
+    // Particles are drawn first so the panels stay legible on top of the bloom.
+    mParticles.draw();
+
     mOscilloscope.draw(mScopeRect.x, mScopeRect.y, mScopeRect.width, mScopeRect.height);
     mXyPad.draw(mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
 }
@@ -141,6 +158,16 @@ int ofApp::noteForKey(int aKey) const
         }
     }
     return -1;
+}
+
+glm::vec2 ofApp::particleOriginFor(int aMidiNote) const
+{
+    // Map pitch across the width of the grid, so bursts appear where the note sits.
+    const float lowest     = static_cast<float>(kBaseNote - 24);
+    const float highest    = static_cast<float>(kBaseNote + 24);
+    const float normalized = dsp::clampf((static_cast<float>(aMidiNote) - lowest) / (highest - lowest), 0.0f, 1.0f);
+
+    return {mGridRect.x + normalized * mGridRect.width, mGridRect.getCenter().y};
 }
 
 void ofApp::keyPressed(int aKey)
@@ -202,6 +229,9 @@ void ofApp::keyPressed(int aKey)
     mHeldKeys[aKey] = HeldNote{note, mActiveVoiceType};
 
     mEngine.noteOn(mActiveVoiceType, note, 0.95f, 0);
+
+    const glm::vec2 origin = particleOriginFor(note);
+    mParticles.spawn(mActiveVoiceType, note, 0.95f, origin.x, origin.y);
 }
 
 void ofApp::keyReleased(int aKey)
