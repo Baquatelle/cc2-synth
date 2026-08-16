@@ -2,6 +2,7 @@
 
 #include "audio/SampleLibrary.h"
 #include "audio/SynthEngine.h"
+#include "ui/Oscilloscope.h"
 
 #include "ofMain.h"
 
@@ -19,6 +20,7 @@ class ofApp : public ofBaseApp
 
     void keyPressed(int aKey) override;
     void keyReleased(int aKey) override;
+    void windowResized(int aW, int aH) override;
 
     /// The audio callback. This is the only openFrameworks-facing part of the audio
     /// path; it immediately delegates to the framework-independent engine.
@@ -28,6 +30,7 @@ class ofApp : public ofBaseApp
     void startAudio();
 
     void loadSamples();
+    void layout();
 
     /// Maps a keyboard key to a MIDI note, or returns -1.
     int noteForKey(int aKey) const;
@@ -35,6 +38,7 @@ class ofApp : public ofBaseApp
     // ---- Owned by value: composition. ----
     SynthEngine   mEngine;
     SampleLibrary mSampleLibrary;
+    Oscilloscope  mOscilloscope;
 
     ofSoundStream mSoundStream;
 
@@ -56,4 +60,7 @@ class ofApp : public ofBaseApp
 
     VoiceType mActiveVoiceType = VoiceType::FM;
     int       mOctaveOffset    = 0;
+
+    // Layout rectangles, recomputed on resize.
+    ofRectangle mScopeRect;
 };

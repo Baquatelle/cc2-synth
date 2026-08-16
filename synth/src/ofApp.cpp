@@ -41,7 +41,13 @@ void ofApp::setup()
 
     loadSamples();
 
+    // ---- Wire the associations. -----------------------------------------
+    // Every member already exists (they are by-value members of this object), so
+    // these pointers are valid for the whole run and none of them imply ownership.
+    mOscilloscope.attach(&mEngine);
+
     startAudio();
+    layout();
 }
 
 void ofApp::loadSamples()
@@ -90,12 +96,31 @@ void ofApp::audioOut(ofSoundBuffer& aBuffer)
     mEngine.process(aBuffer.getBuffer().data(), aBuffer.getNumFrames(), aBuffer.getNumChannels());
 }
 
+void ofApp::layout()
+{
+    const float width       = static_cast<float>(ofGetWidth());
+    const float height      = static_cast<float>(ofGetHeight());
+    const float margin      = 16.0f;
+    const float columnWidth = width - margin * 2.0f;
+
+    mScopeRect.set(margin, margin, columnWidth, height * 0.26f);
+}
+
+void ofApp::windowResized(int aW, int aH)
+{
+    (void)aW;
+    (void)aH;
+    layout();
+}
+
 void ofApp::update()
 {
+    mOscilloscope.update();
 }
 
 void ofApp::draw()
 {
+    mOscilloscope.draw(mScopeRect.x, mScopeRect.y, mScopeRect.width, mScopeRect.height);
 }
 
 int ofApp::noteForKey(int aKey) const
