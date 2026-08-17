@@ -44,9 +44,12 @@ void ofApp::setup()
     // ---- Wire the associations. -----------------------------------------
     // Every member already exists (they are by-value members of this object), so
     // these pointers are valid for the whole run and none of them imply ownership.
+    mSequencer.attach(&mEngine);
     mXyPad.attach(&mEngine);
     mOscilloscope.attach(&mEngine);
     mParticles.attach(&mEngine);
+
+    mSequencer.setupDefaultPattern();
 
     startAudio();
     layout();
@@ -126,13 +129,17 @@ void ofApp::windowResized(int aW, int aH)
 
 void ofApp::update()
 {
-    // Real elapsed time rather than a fixed step.
+    // Real elapsed time rather than a fixed step, so the sequencer's tempo stays
+    // correct even if the frame rate wobbles.
     const float now   = ofGetElapsedTimef();
     float       delta = now - mLastFrameTime;
     mLastFrameTime    = now;
 
+    // Clamp: after a window drag or a breakpoint, a huge delta would fire a burst
+    // of steps all at once.
     delta = dsp::clampf(delta, 0.0f, 0.1f);
 
+    mSequencer.advance(delta);
     mOscilloscope.update();
     mParticles.update(delta);
 }
@@ -144,6 +151,7 @@ void ofApp::draw()
 
     mOscilloscope.draw(mScopeRect.x, mScopeRect.y, mScopeRect.width, mScopeRect.height);
     mXyPad.draw(mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
+    mSequencer.draw(mGridRect.x, mGridRect.y, mGridRect.width, mGridRect.height);
 }
 
 int ofApp::noteForKey(int aKey) const
@@ -182,6 +190,9 @@ void ofApp::keyPressed(int aKey)
         return;
     case '3':
         mActiveVoiceType = VoiceType::Sampler;
+        return;
+    case ' ':
+        mSequencer.togglePlaying();
         return;
     case 'z':
     case 'Z':
@@ -256,6 +267,11 @@ void ofApp::mousePressed(int aX, int aY, int aButton)
     const auto mouseX = static_cast<float>(aX);
     const auto mouseY = static_cast<float>(aY);
 
+    if (mSequencer.handleClick(mouseX, mouseY, mGridRect.x, mGridRect.y, mGridRect.width, mGridRect.height))
+    {
+        return;
+    }
+
     mXyPad.handleDrag(mouseX, mouseY, mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
 }
 
@@ -267,6 +283,13 @@ void ofApp::mouseDragged(int aX, int aY, int aButton)
     const auto mouseY = static_cast<float>(aY);
 
     mXyPad.handleDrag(mouseX, mouseY, mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
+}
+
+void ofApp::mouseReleased(int aX, int aY, int aButton)
+{
+    (void)aX;
+    (void)aY;
+    (void)aButton;
 }
 
 void ofApp::exit()
