@@ -5,6 +5,7 @@
 #include "ofGraphics.h"
 
 #include <algorithm>
+#include <random>
 
 namespace
 {
@@ -102,6 +103,31 @@ void Sequencer::toggleStep(std::size_t aRow, std::size_t aStep)
 bool Sequencer::stepEnabled(std::size_t aRow, std::size_t aStep) const
 {
     return (aRow < kRows && aStep < kSteps) ? mRows[aRow].mSteps[aStep] : false;
+}
+
+void Sequencer::clear()
+{
+    for (Row& row : mRows)
+    {
+        row.mSteps.fill(false);
+    }
+}
+
+void Sequencer::randomize(unsigned int aSeed)
+{
+    std::mt19937                          generator{aSeed};
+    std::uniform_real_distribution<float> chance(0.0f, 1.0f);
+
+    for (std::size_t row = 0; row < kRows; ++row)
+    {
+        // Drums get a denser pattern than the melodic rows, which keeps the result
+        // groove-like rather than a uniform wash of notes.
+        const float density = (mRows[row].mVoiceType == VoiceType::Percussion) ? 0.32f : 0.18f;
+        for (std::size_t step = 0; step < kSteps; ++step)
+        {
+            mRows[row].mSteps[step] = chance(generator) < density;
+        }
+    }
 }
 
 void Sequencer::advance(float aDeltaSeconds)
@@ -249,6 +275,25 @@ bool Sequencer::cellAt(float aMouseX, float aMouseY, float aX, float aY, float a
     return true;
 }
 
+void Sequencer::auditionRow(std::size_t aRow)
+{
+    // Immediate feedback while drawing a pattern: you hear the row you just clicked
+    // without having to start the transport.
+    if (mEngine == nullptr || aRow >= kRows)
+    {
+        return;
+    }
+
+    const Row& target = mRows[aRow];
+    mEngine->noteOn(target.mVoiceType, target.mMidiNote, 0.9f, kSourceId);
+
+    HeldNote held;
+    held.mVoiceType        = target.mVoiceType;
+    held.mMidiNote         = target.mMidiNote;
+    held.mRemainingSeconds = secondsPerStep() * mGateRatio;
+    mHeldNotes.push_back(held);
+}
+
 bool Sequencer::handleClick(float aMouseX, float aMouseY, float aX, float aY, float aWidth, float aHeight)
 {
     std::size_t row  = 0;
@@ -259,5 +304,51 @@ bool Sequencer::handleClick(float aMouseX, float aMouseY, float aX, float aY, fl
     }
 
     toggleStep(row, step);
+
+    // Start a paint gesture, remembering this cell so the drag that follows does
+    // not immediately toggle it back off.
+    mDragging        = true;
+    mLastPaintedRow  = row;
+    mLastPaintedStep = step;
+
+    // Only audition when switching a step on, so erasing stays silent.
+    if (stepEnabled(row, step))
+    {
+        auditionRow(row);
+    }
     return true;
+}
+
+bool Sequencer::handleDrag(float aMouseX, float aMouseY, float aX, float aY, float aWidth, float aHeight)
+{
+    if (!mDragging)
+    {
+        return false;
+    }
+
+    std::size_t row  = 0;
+    std::size_t step = 0;
+    if (!cellAt(aMouseX, aMouseY, aX, aY, aWidth, aHeight, row, step))
+    {
+        return false;
+    }
+
+    // Only act when the pointer enters a *different* cell; otherwise the same cell
+    // would flip on and off for every mouse-move event.
+    if (row == mLastPaintedRow && step == mLastPaintedStep)
+    {
+        return true;
+    }
+
+    mLastPaintedRow  = row;
+    mLastPaintedStep = step;
+    toggleStep(row, step);
+    return true;
+}
+
+void Sequencer::endDrag()
+{
+    mDragging        = false;
+    mLastPaintedRow  = kRows;
+    mLastPaintedStep = kSteps;
 }

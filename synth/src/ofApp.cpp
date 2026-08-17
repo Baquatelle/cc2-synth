@@ -202,6 +202,20 @@ void ofApp::keyPressed(int aKey)
     case 'X':
         mOctaveOffset = std::min(mOctaveOffset + 1, 3);
         return;
+    case 'c':
+    case 'C':
+        mSequencer.clear();
+        return;
+    case 'r':
+    case 'R':
+        mSequencer.randomize(static_cast<unsigned int>(ofGetElapsedTimeMillis()));
+        return;
+    case '[':
+        mSequencer.setTempo(mSequencer.tempo() - 5.0f);
+        return;
+    case ']':
+        mSequencer.setTempo(mSequencer.tempo() + 5.0f);
+        return;
     case ',':
         // Cycle the sampler's recording downwards.
         if (mSampleLibrary.size() > 0)
@@ -282,6 +296,13 @@ void ofApp::mouseDragged(int aX, int aY, int aButton)
     const auto mouseX = static_cast<float>(aX);
     const auto mouseY = static_cast<float>(aY);
 
+    // Painting across the grid takes precedence over the pad, so a gesture that
+    // starts on the grid keeps drawing steps.
+    if (mSequencer.handleDrag(mouseX, mouseY, mGridRect.x, mGridRect.y, mGridRect.width, mGridRect.height))
+    {
+        return;
+    }
+
     mXyPad.handleDrag(mouseX, mouseY, mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
 }
 
@@ -290,6 +311,7 @@ void ofApp::mouseReleased(int aX, int aY, int aButton)
     (void)aX;
     (void)aY;
     (void)aButton;
+    mSequencer.endDrag();
 }
 
 void ofApp::exit()
