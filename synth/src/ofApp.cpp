@@ -48,6 +48,7 @@ void ofApp::setup()
     mXyPad.attach(&mEngine);
     mOscilloscope.attach(&mEngine);
     mParticles.attach(&mEngine);
+    mStatusPanel.attach(&mEngine, &mSequencer, &mSampleLibrary);
 
     mSequencer.setupDefaultPattern();
 
@@ -116,6 +117,9 @@ void ofApp::layout()
     const float padWidth = columnWidth * 0.36f;
     mPadRect.set(margin, middleY, padWidth, height * 0.30f);
 
+    const float statusX = mPadRect.getRight() + margin;
+    mStatusRect.set(statusX, middleY, columnWidth - padWidth - margin, height * 0.30f);
+
     const float gridY = mPadRect.getBottom() + margin;
     mGridRect.set(margin, gridY, columnWidth, height - gridY - margin);
 }
@@ -142,6 +146,9 @@ void ofApp::update()
     mSequencer.advance(delta);
     mOscilloscope.update();
     mParticles.update(delta);
+
+    mStatusPanel.setActiveVoiceType(mActiveVoiceType);
+    mStatusPanel.setOctaveOffset(mOctaveOffset);
 }
 
 void ofApp::draw()
@@ -152,6 +159,7 @@ void ofApp::draw()
     mOscilloscope.draw(mScopeRect.x, mScopeRect.y, mScopeRect.width, mScopeRect.height);
     mXyPad.draw(mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
     mSequencer.draw(mGridRect.x, mGridRect.y, mGridRect.width, mGridRect.height);
+    mStatusPanel.draw(mStatusRect.x, mStatusRect.y);
 }
 
 int ofApp::noteForKey(int aKey) const
