@@ -8,6 +8,7 @@
 #include "audio/PercussionVoice.h"
 #include "audio/Sample.h"
 #include "audio/SamplerVoice.h"
+#include "audio/SynthEngine.h"
 #include "audio/WavLoader.h"
 
 #include <algorithm>
@@ -17,6 +18,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace selftest
 {
@@ -362,6 +364,194 @@ void testVoices()
     }
 }
 
+// -------------------------------------------------------------------------
+// Output level and percussion decay shape
+// -------------------------------------------------------------------------
+
+void testAudioLevels()
+{
+    std::cout << "output level and decay shape\n";
+
+    constexpr float kRate = 44100.0f;
+
+    // REGRESSION: a single note must arrive at a usable level.
+    //
+    // The engine divides the mix by sqrt(kVoicesPerType) for polyphony headroom.
+    // Without a makeup gain that left one note near 0.18 (about -15 dBFS), so the
+    // synth was roughly 9 dB quieter than intended and "correct" only if the user
+    // turned the system volume up. A single note should land nearer -6 dBFS.
+    {
+        SynthEngine engine;
+        engine.prepare(kRate, 2);
+        // Open the filter so this measures the master gain, not the low-pass.
+        engine.setCutoff(18000.0f);
+        engine.noteOn(VoiceType::FM, 60, 0.95f, 0);
+
+        std::vector<float> block(256 * 2, 0.0f);
+        float              peak = 0.0f;
+        for (int i = 0; i < 40; ++i)
+        {
+            engine.process(block.data(), 256, 2);
+            for (float sample : block)
+            {
+                peak = std::max(peak, std::fabs(sample));
+            }
+        }
+
+        expect(peak > 0.30f, "a single note reaches a healthy output level (makeup gain applied)");
+    }
+
+    // REGRESSION: the makeup gain must stay *inside* dsp::softClip().
+    //
+    // tanh() is the only thing bounding the master bus, so gain applied after it
+    // would push the output past full scale and clip in the driver. A single note
+    // cannot detect that mistake -- post-limiter it would still only reach
+    // tanh(0.95 * 0.25) * 0.75 * 3.0 ~= 0.52 -- so this fills the FM sub-pool at
+    // full velocity with the master volume wide open, where the same mistake
+    // drives the peak towards 3.0 instead.
+    //
+    // Both bounds are asserted together on purpose: "stays within full scale"
+    // would prove nothing if the chord were silent, and "drives the limiter hard"
+    // would prove nothing if it were clipping. The lower bound is deliberately as
+    // high as 0.9: the point is to prove tanh() is genuinely saturated, which is
+    // the only condition under which a post-limiter gain would show up at all.
+    // This configuration measures exactly 1.0000, so the margin is ample.
+    {
+        SynthEngine engine;
+        engine.prepare(kRate, 2);
+        engine.setCutoff(18000.0f);
+        engine.setMasterVolume(1.0f);
+        for (int note = 48; note < 48 + static_cast<int>(SynthEngine::kVoicesPerType); ++note)
+        {
+            engine.noteOn(VoiceType::FM, note, 1.0f, 0);
+        }
+
+        std::vector<float> block(256 * 2, 0.0f);
+        float              peak = 0.0f;
+        for (int i = 0; i < 40; ++i)
+        {
+            engine.process(block.data(), 256, 2);
+            for (float sample : block)
+            {
+                peak = std::max(peak, std::fabs(sample));
+            }
+        }
+
+        expect(peak > 0.9f && peak <= 1.0f, "a full chord drives the limiter hard and stays within full scale");
+    }
+
+    // REGRESSION: a drum must ring for something close to its nominal decay.
+    //
+    // Every hit is shaped by two exponentials multiplied together -- mBodyLevel
+    // and the ADSR decay. With both set to the same time constant their product
+    // collapsed at roughly twice the rate, so a kick with a 0.32 s decay died to
+    // -40 dB in ~0.09 s and read as a click rather than a thud.
+    {
+        // Mirrors kKickDecay in PercussionVoice.cpp, which is file-local there.
+        constexpr float kNominalKickDecay = 0.32f;
+
+        PercussionVoice kick;
+        kick.prepare(kRate);
+        VoiceParams params;
+        params.mCutoffHz = 18000.0f;
+        kick.setParams(params);
+        kick.noteOn(36, 1.0f, 0, 1); // 36 % 3 == 0 -> Kick, nominal 0.32 s decay
+
+        const auto totalFrames       = static_cast<std::size_t>(kRate);
+        const auto nominalDecayFrame = static_cast<std::size_t>(kNominalKickDecay * kRate);
+
+        // A single pass over exactly one second, sampling the envelope as it goes
+        // rather than splitting the render in two. Initialised to 0.0f so that a
+        // sample point which somehow never fires *fails* the assertion below
+        // instead of reading a stale value.
+        float              envelopeAtNominalDecay = 0.0f;
+        std::vector<float> rendered;
+        rendered.reserve(totalFrames);
+        for (std::size_t i = 0; i < totalFrames; ++i)
+        {
+            rendered.push_back(kick.render());
+            if (i + 1 == nominalDecayFrame)
+            {
+                envelopeAtNominalDecay = kick.envelopeLevel();
+            }
+        }
+
+        float peak = 0.0f;
+        for (float sample : rendered)
+        {
+            peak = std::max(peak, std::fabs(sample));
+        }
+
+        // Last moment the hit is still within 40 dB of its own peak, i.e. how long
+        // it stays genuinely audible.
+        std::size_t lastAudible = 0;
+        for (std::size_t i = 0; i < rendered.size(); ++i)
+        {
+            if (std::fabs(rendered[i]) > peak * 0.01f)
+            {
+                lastAudible = i;
+            }
+        }
+        const float audibleSeconds = static_cast<float>(lastAudible) / kRate;
+
+        // Deliberately kept, and not a duplicate of testVoices()' "percussion
+        // voice produces sound": audibleSeconds is measured *relative* to the
+        // hit's own peak, so it is scale-invariant, and a denormal-quiet kick with
+        // a flawless decay shape would satisfy it. This anchors the absolute level
+        // so that the shape measurement means something. (An outright silent kick
+        // is caught either way -- peak would be 0, no sample would clear the
+        // threshold, and audibleSeconds would come out 0.)
+        expect(peak > 0.01f, "kick reaches a real level, so the decay measurement is meaningful");
+
+        // The mechanism, asserted directly and independently of amplitude: at the
+        // nominal decay time the envelope must still be well clear of silence, so
+        // that it is the body contour -- not the envelope -- shaping the hit. With
+        // both decays set to the same time this sat at ~1e-4, on the cusp of
+        // dsp::kSilence and about to hand over to Idle; at 1.8x it is ~6e-3. That
+        // 60x separation is what makes this the durable check, and the -40 dB
+        // duration below merely the perceptual one.
+        expect(envelopeAtNominalDecay > 1.0e-3f, "the envelope outlives the body contour at the nominal decay time");
+        expect(audibleSeconds > 0.11f, "kick sustains its body rather than collapsing into a click");
+    }
+
+    // REGRESSION: lengthening the envelope must not stop a drum self-terminating,
+    // and must not make it sit on its pool slot for long either. The envelope now
+    // outlives the body contour, so it alone decides both -- that the zero sustain
+    // still hands over to Idle, and how long the slot stays occupied.
+    {
+        PercussionVoice kick;
+        kick.prepare(kRate);
+        kick.noteOn(36, 1.0f, 0, 1);
+
+        const int limitFrames = static_cast<int>(kRate) * 3;
+
+        // `finished` carries the "terminates at all" intent directly, rather than
+        // leaning on a duration threshold that would silently be a second copy of
+        // limitFrames. lifetimeSeconds keeps a sentinel so a voice that never frees
+        // itself *fails* the promptness bound instead of passing it vacuously.
+        bool  finished        = false;
+        float lifetimeSeconds = 999.0f;
+        for (int i = 0; i < limitFrames; ++i)
+        {
+            kick.render();
+            if (!kick.isActive())
+            {
+                finished        = true;
+                lifetimeSeconds = static_cast<float>(i + 1) / kRate;
+                break;
+            }
+        }
+
+        expect(finished, "a drum with the lengthened envelope still frees its voice");
+
+        // Upper bound on the pool-slot cost. A kick is ~0.58 s at 1.8x; raising
+        // kEnvelopeDecayRatio to 4x would cost 1.28 s and fail here, which is the
+        // point -- the percussion sub-pool is only kVoicesPerType deep, so buying
+        // audibility with slot lifetime would starve a dense pattern instead.
+        expect(lifetimeSeconds < 1.0f, "a drum releases its pool slot promptly");
+    }
+}
+
 } // namespace
 
 int run()
@@ -373,6 +563,7 @@ int run()
     testFilter();
     testWavLoader();
     testVoices();
+    testAudioLevels();
 
     std::cout << "-------------------\n";
     std::cout << g_checks - g_failures << " / " << g_checks << " checks passed\n";
