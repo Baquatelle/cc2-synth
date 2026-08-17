@@ -60,6 +60,9 @@ class ofApp : public ofBaseApp
   private:
     void startAudio();
 
+    /// Closes the stream, rebuilds the engine for `aSampleRate`, and reopens.
+    void restartAudioAtRate(float aSampleRate);
+
     void loadSamples();
     void layout();
 
