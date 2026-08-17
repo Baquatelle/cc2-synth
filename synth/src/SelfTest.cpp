@@ -2,8 +2,12 @@
 
 #include "audio/DspMath.h"
 #include "audio/Envelope.h"
+#include "audio/FMVoice.h"
 #include "audio/Filter.h"
+#include "audio/Note.h"
+#include "audio/PercussionVoice.h"
 #include "audio/Sample.h"
+#include "audio/SamplerVoice.h"
 #include "audio/WavLoader.h"
 
 #include <algorithm>
@@ -36,6 +40,20 @@ bool expect(bool aCondition, const std::string& aWhat)
         ++g_failures;
     }
     return aCondition;
+}
+
+/// Renders a voice for `aSeconds` and returns the peak absolute output.
+/// Used to answer the only question that really matters of a voice: does it
+/// actually make a sound?
+float peakOf(Voice& aVoice, float aSampleRate, float aSeconds)
+{
+    const int frames = static_cast<int>(aSampleRate * aSeconds);
+    float     peak   = 0.0f;
+    for (int i = 0; i < frames; ++i)
+    {
+        peak = std::max(peak, std::fabs(aVoice.render()));
+    }
+    return peak;
 }
 
 // -------------------------------------------------------------------------
@@ -257,6 +275,93 @@ void testWavLoader()
     std::remove(badPath.c_str());
 }
 
+// -------------------------------------------------------------------------
+// Voices (inheritance / polymorphism)
+// -------------------------------------------------------------------------
+
+void testVoices()
+{
+    std::cout << "voices\n";
+
+    constexpr float kRate = 44100.0f;
+
+    // Every voice type is driven through the *same* base-class interface, which is
+    // the whole point of the Voice hierarchy.
+    {
+        FMVoice fm;
+        fm.prepare(kRate);
+        VoiceParams params;
+        params.mCutoffHz = 12000.0f;
+        fm.setParams(params);
+        fm.noteOn(60, 1.0f, 0, 1);
+        expect(peakOf(fm, kRate, 0.1f) > 0.01f, "FM voice produces sound");
+        expect(fm.type() == VoiceType::FM, "FM voice reports its type");
+    }
+
+    {
+        PercussionVoice drum;
+        drum.prepare(kRate);
+        VoiceParams params;
+        params.mCutoffHz = 12000.0f;
+        drum.setParams(params);
+        drum.noteOn(36, 1.0f, 0, 1);
+        expect(peakOf(drum, kRate, 0.05f) > 0.01f, "percussion voice produces sound");
+        expect(drum.type() == VoiceType::Percussion, "percussion voice reports its type");
+    }
+
+    // REGRESSION: percussion must keep its own envelope and be a one-shot.
+    {
+        PercussionVoice drum;
+        drum.prepare(kRate);
+        expect(!drum.usesGlobalEnvelope(), "percussion keeps its own envelope");
+        expect(drum.isOneShot(), "percussion is a one-shot");
+
+        // The engine pushes the global (sustaining) ADSR every block. If that
+        // overwrote the drum's zero sustain, the drum would never stop.
+        VoiceParams sustaining;
+        sustaining.mEnvelope.mAttack  = 0.01f;
+        sustaining.mEnvelope.mDecay   = 0.10f;
+        sustaining.mEnvelope.mSustain = 0.8f;
+        sustaining.mEnvelope.mRelease = 0.20f;
+
+        drum.noteOn(36, 1.0f, 0, 1);
+        bool stopped = false;
+        for (int i = 0; i < static_cast<int>(kRate) * 3; ++i)
+        {
+            if ((i % 256) == 0)
+            {
+                drum.setParams(sustaining);
+            }
+            drum.render();
+            if (!drum.isActive())
+            {
+                stopped = true;
+                break;
+            }
+        }
+        expect(stopped, "drum still finishes while a sustaining ADSR is pushed to it");
+
+        // A one-shot ignores note-off, so a short sequencer gate cannot chop it off.
+        PercussionVoice other;
+        other.prepare(kRate);
+        other.noteOn(36, 1.0f, 0, 1);
+        for (int i = 0; i < 64; ++i)
+        {
+            other.render();
+        }
+        other.noteOff();
+        expect(!other.isReleasing(), "one-shot ignores note-off");
+    }
+
+    // The sampler stays silent (rather than crashing) with no library attached.
+    {
+        SamplerVoice sampler;
+        sampler.prepare(kRate);
+        sampler.noteOn(60, 1.0f, 0, 1);
+        expect(peakOf(sampler, kRate, 0.05f) == 0.0f, "sampler is silent with no library");
+    }
+}
+
 } // namespace
 
 int run()
@@ -267,6 +372,7 @@ int run()
     testEnvelope();
     testFilter();
     testWavLoader();
+    testVoices();
 
     std::cout << "-------------------\n";
     std::cout << g_checks - g_failures << " / " << g_checks << " checks passed\n";
