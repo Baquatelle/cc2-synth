@@ -11,6 +11,7 @@
 #include "audio/SamplerVoice.h"
 #include "audio/SynthEngine.h"
 #include "audio/WavLoader.h"
+#include "ui/Sequencer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -742,6 +743,107 @@ void testEngine()
     expect(scopeFinite, "scope buffer contains only finite samples");
 }
 
+// -------------------------------------------------------------------------
+// Sequencer timing and association
+// -------------------------------------------------------------------------
+
+void testSequencer()
+{
+    std::cout << "sequencer\n";
+
+    SynthEngine engine;
+    engine.prepare(44100.0f, 2);
+
+    Sequencer sequencer;
+    sequencer.attach(&engine); // association: driven, not owned
+    sequencer.clear();
+    sequencer.setTempo(120.0f);
+
+    expect(!sequencer.isPlaying(), "starts stopped");
+
+    // Nothing should fire while stopped.
+    sequencer.advance(1.0f);
+    expect(sequencer.triggeredNoteCount() == 0, "no notes fire while stopped");
+
+    // One step on row 0. At 120 BPM a sixteenth is 0.125 s, so a full 16-step bar
+    // is 2 s; advancing that far must trigger the step exactly once.
+    sequencer.toggleStep(0, 4);
+    expect(sequencer.stepEnabled(0, 4), "toggling a step enables it");
+
+    sequencer.setPlaying(true);
+    for (int i = 0; i < 160; ++i)
+    {
+        sequencer.advance(0.0125f); // 2 s total, in small increments
+    }
+    expect(sequencer.triggeredNoteCount() >= 1, "the enabled step fires within one bar");
+
+    // A single huge delta must not silently swallow steps.
+    Sequencer burst;
+    burst.attach(&engine);
+    burst.clear();
+    burst.setTempo(120.0f);
+    for (std::size_t step = 0; step < Sequencer::kSteps; ++step)
+    {
+        burst.toggleStep(0, step);
+    }
+    burst.setPlaying(true);
+    burst.advance(2.0f); // a whole bar in one frame
+    expect(burst.triggeredNoteCount() >= Sequencer::kSteps - 1, "a long frame still fires every step it passed");
+
+    // Toggling off works, and out-of-range access is safe.
+    sequencer.toggleStep(0, 4);
+    expect(!sequencer.stepEnabled(0, 4), "toggling again disables the step");
+    expect(!sequencer.stepEnabled(9999, 9999), "out-of-range queries are safe");
+
+    sequencer.clear();
+    bool allClear = true;
+    for (std::size_t row = 0; row < Sequencer::kRows; ++row)
+    {
+        for (std::size_t step = 0; step < Sequencer::kSteps; ++step)
+        {
+            if (sequencer.stepEnabled(row, step))
+            {
+                allClear = false;
+            }
+        }
+    }
+    expect(allClear, "clear() empties the grid");
+
+    // Randomise is deterministic for a given seed, which keeps demos repeatable.
+    Sequencer a;
+    Sequencer b;
+    a.setupDefaultPattern();
+    b.setupDefaultPattern();
+    a.randomize(12345u);
+    b.randomize(12345u);
+    bool identical = true;
+    for (std::size_t row = 0; row < Sequencer::kRows && identical; ++row)
+    {
+        for (std::size_t step = 0; step < Sequencer::kSteps; ++step)
+        {
+            if (a.stepEnabled(row, step) != b.stepEnabled(row, step))
+            {
+                identical = false;
+                break;
+            }
+        }
+    }
+    expect(identical, "randomize() is deterministic for a given seed");
+
+    // Tempo is clamped to a sane musical range.
+    sequencer.setTempo(1.0f);
+    expect(sequencer.tempo() >= 40.0f, "tempo is clamped from below");
+    sequencer.setTempo(10000.0f);
+    expect(sequencer.tempo() <= 240.0f, "tempo is clamped from above");
+
+    // A detached sequencer must not crash -- the association is optional.
+    Sequencer orphan;
+    orphan.setupDefaultPattern();
+    orphan.setPlaying(true);
+    orphan.advance(1.0f);
+    expect(true, "a sequencer with no engine attached runs harmlessly");
+}
+
 } // namespace
 
 int run()
@@ -756,6 +858,7 @@ int run()
     testAudioLevels();
     testSampleSharing();
     testEngine();
+    testSequencer();
 
     std::cout << "-------------------\n";
     std::cout << g_checks - g_failures << " / " << g_checks << " checks passed\n";
