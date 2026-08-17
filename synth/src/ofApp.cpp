@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 
 namespace
 {
@@ -94,7 +95,81 @@ void ofApp::startAudio()
     // already has a fully built voice pool to render from.
     mEngine.prepare(static_cast<float>(kSampleRate), 2);
 
-    mSoundStream.setup(settings);
+    if (!mSoundStream.setup(settings))
+    {
+        // Fallback: let openFrameworks pick the default device and rate itself.
+        ofLogWarning("ofApp") << "preferred audio settings rejected, retrying with device defaults";
+
+        ofSoundStreamSettings fallback;
+        fallback.setOutListener(this);
+        fallback.numOutputChannels = 2;
+        fallback.numInputChannels  = 0;
+        fallback.bufferSize        = kBufferSize;
+
+        if (!mSoundStream.setup(fallback))
+        {
+            ofLogError("ofApp") << "could not open any audio output device -- running silently";
+            mStatusPanel.setAudioInfo("FAILED to open an audio device");
+            return;
+        }
+    }
+
+    const float actualRate = static_cast<float>(mSoundStream.getSampleRate());
+
+    // If the device forced a different rate, rebuild at that rate.
+    if (std::fabs(actualRate - static_cast<float>(kSampleRate)) > 1.0f)
+    {
+        ofLogNotice("ofApp") << "device chose " << actualRate << " Hz; rebuilding engine to match";
+        restartAudioAtRate(actualRate);
+        return;
+    }
+
+    std::string info = ofToString(mSoundStream.getSampleRate()) + " Hz, buffer " +
+                       ofToString(mSoundStream.getBufferSize()) + " frames, " +
+                       ofToString(mSoundStream.getNumOutputChannels()) + " ch";
+#ifdef TARGET_WIN32
+    info += " (Windows: larger buffer for WASAPI/DirectSound)";
+#else
+    info += " (macOS CoreAudio)";
+#endif
+
+    // Latency is what the buffer size actually means to the player.
+    const float latencyMs =
+        1000.0f * static_cast<float>(mSoundStream.getBufferSize()) / static_cast<float>(mSoundStream.getSampleRate());
+    info += " ~" + ofToString(latencyMs, 1) + " ms";
+
+    mStatusPanel.setAudioInfo(info);
+    ofLogNotice("ofApp") << "audio: " << info;
+}
+
+void ofApp::restartAudioAtRate(float aSampleRate)
+{
+    mSoundStream.close();
+    mEngine.prepare(aSampleRate, 2);
+
+    ofSoundStreamSettings settings;
+    settings.setOutListener(this);
+    settings.sampleRate        = static_cast<size_t>(aSampleRate);
+    settings.numOutputChannels = 2;
+    settings.numInputChannels  = 0;
+    settings.bufferSize        = kBufferSize;
+
+    if (!mSoundStream.setup(settings))
+    {
+        ofLogError("ofApp") << "could not reopen the audio device at " << aSampleRate << " Hz";
+        mStatusPanel.setAudioInfo("FAILED to reopen audio at " + ofToString(aSampleRate) + " Hz");
+        return;
+    }
+
+    std::string info = ofToString(mSoundStream.getSampleRate()) + " Hz (device default), buffer " +
+                       ofToString(mSoundStream.getBufferSize()) + " frames, " +
+                       ofToString(mSoundStream.getNumOutputChannels()) + " ch";
+    const float latencyMs =
+        1000.0f * static_cast<float>(mSoundStream.getBufferSize()) / static_cast<float>(mSoundStream.getSampleRate());
+    info += " ~" + ofToString(latencyMs, 1) + " ms";
+
+    mStatusPanel.setAudioInfo(info);
+    ofLogNotice("ofApp") << "audio: " << info;
 }
 
 void ofApp::audioOut(ofSoundBuffer& aBuffer)
