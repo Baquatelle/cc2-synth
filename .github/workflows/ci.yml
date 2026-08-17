@@ -1,0 +1,94 @@
+name: ci
+
+# Builds the synthesizer on both supported platforms and runs the headless
+# self-test. The point of this workflow is that a change which only breaks the
+# *other* platform cannot land unnoticed: development happens on macOS, so
+# Windows is the side that silently rots without CI.
+#
+# Only the openFrameworks *archive* is cached (.cache/), not the extracted or
+# compiled tree. Caching the extracted of/ directory would be faster, but a
+# partially-restored of/ collides with bootstrap.py's extract-and-rename step,
+# and a ~2 GB cache is slow to restore anyway. Recompiling the openFrameworks
+# core each run is the slow-but-correct trade; the cache still removes the
+# flakiest step, which is the 210 MB / 363 MB download.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OF_VERSION: "0.12.1"
+
+jobs:
+  macos:
+    name: macOS (Xcode)
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache openFrameworks archive
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: of-archive-macos-${{ env.OF_VERSION }}
+
+      - name: Bootstrap (fetch openFrameworks, prepare samples, generate project)
+        run: python3 scripts/bootstrap.py
+
+      - name: Build and run self-test
+        run: python3 scripts/build.py --check
+
+  windows:
+    name: Windows (MSYS2 MinGW64)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      # actions/* steps run in the runner's default shell, not msys2.
+      - uses: actions/checkout@v4
+
+      - name: Cache openFrameworks archive
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: of-archive-windows-${{ env.OF_VERSION }}
+
+      - name: Set up MSYS2 MinGW64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          # The openFrameworks msys2 release ships prebuilt libs, so this is the
+          # toolchain plus what bootstrap.py itself needs (python, unzip).
+          install: >-
+            make
+            unzip
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-pkg-config
+
+      - name: Bootstrap (fetch openFrameworks, prepare samples, generate project)
+        run: python3 scripts/bootstrap.py
+
+      - name: Install openFrameworks system dependencies
+        # Run after bootstrap, since the script only exists once of/ is extracted.
+        # Best-effort: the release bundles prebuilt libs, so a missing or failing
+        # script is not fatal on its own -- the build step is the real gate.
+        run: |
+          if [ -f of/scripts/msys2/install_dependencies.sh ]; then
+            of/scripts/msys2/install_dependencies.sh --noconfirm || \
+              echo "::warning::install_dependencies.sh failed; continuing to build"
+          else
+            echo "no install_dependencies.sh in this release, skipping"
+          fi
+
+      - name: Build and run self-test
+        run: python3 scripts/build.py --check
