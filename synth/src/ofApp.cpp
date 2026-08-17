@@ -144,6 +144,8 @@ void ofApp::startAudio()
 
 void ofApp::restartAudioAtRate(float aSampleRate)
 {
+    // Order matters. Closing first guarantees the audio thread is no longer inside
+    // process() before prepare() destroys and recreates the voice pool.
     mSoundStream.close();
     mEngine.prepare(aSampleRate, 2);
 
@@ -399,5 +401,6 @@ void ofApp::mouseReleased(int aX, int aY, int aButton)
 
 void ofApp::exit()
 {
+    // Stop the audio thread before anything is destroyed.
     mSoundStream.close();
 }
