@@ -7,6 +7,7 @@
 #include "audio/Note.h"
 #include "audio/PercussionVoice.h"
 #include "audio/Sample.h"
+#include "audio/SampleLibrary.h"
 #include "audio/SamplerVoice.h"
 #include "audio/SynthEngine.h"
 #include "audio/WavLoader.h"
@@ -17,6 +18,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -552,6 +554,75 @@ void testAudioLevels()
     }
 }
 
+// -------------------------------------------------------------------------
+// Aggregation: shared samples
+// -------------------------------------------------------------------------
+
+void testSampleSharing()
+{
+    std::cout << "sample sharing (aggregation)\n";
+
+    auto sample           = std::make_shared<Sample>();
+    sample->mName         = "test";
+    sample->mSampleRate   = 44100.0f;
+    sample->mBaseMidiNote = 60.0f;
+    sample->mFrames.resize(4410);
+    for (std::size_t i = 0; i < sample->mFrames.size(); ++i)
+    {
+        const double phase = dsp::kTwoPi * 441.0 * static_cast<double>(i) / 44100.0;
+        sample->mFrames[i] = static_cast<float>(std::sin(phase));
+    }
+
+    SampleLibrary library;
+    library.add(sample);
+    expect(library.size() == 1, "library holds the sample");
+
+    const long useCountInLibrary = sample.use_count();
+
+    {
+        // Two voices play the same recording simultaneously.
+        SamplerVoice a;
+        SamplerVoice b;
+        a.prepare(44100.0f);
+        b.prepare(44100.0f);
+        a.setLibrary(&library);
+        b.setLibrary(&library);
+        a.noteOn(60, 1.0f, 0, 1);
+        b.noteOn(72, 1.0f, 0, 2); // an octave up: exercises the pitch shift
+
+        expect(sample.use_count() > useCountInLibrary, "several voices share one Sample (aggregation)");
+        expect(peakOf(a, 44100.0f, 0.05f) > 0.01f, "sampler plays the shared recording");
+        expect(peakOf(b, 44100.0f, 0.05f) > 0.01f, "a second voice plays the same recording, transposed");
+    }
+
+    // The recording outlives every voice that played it -- the defining property
+    // that makes this aggregation rather than composition.
+    expect(sample.use_count() == useCountInLibrary, "Sample outlives the voices that played it");
+
+    // A voice mid-note keeps its recording alive even if the library is cleared.
+    {
+        SamplerVoice voice;
+        voice.prepare(44100.0f);
+        voice.setLibrary(&library);
+        voice.noteOn(60, 1.0f, 0, 1);
+        voice.render();
+
+        library.clear();
+        expect(sample.use_count() >= 2, "a sounding voice keeps its Sample alive after a library reload");
+
+        bool finite = true;
+        for (int i = 0; i < 1000; ++i)
+        {
+            if (!std::isfinite(voice.render()))
+            {
+                finite = false;
+                break;
+            }
+        }
+        expect(finite, "the voice keeps rendering safely after the library was cleared");
+    }
+}
+
 } // namespace
 
 int run()
@@ -564,6 +635,7 @@ int run()
     testWavLoader();
     testVoices();
     testAudioLevels();
+    testSampleSharing();
 
     std::cout << "-------------------\n";
     std::cout << g_checks - g_failures << " / " << g_checks << " checks passed\n";
