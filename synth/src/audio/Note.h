@@ -44,6 +44,20 @@ inline float pitchRatio(float aMidiNote, float aBaseMidiNote)
     return std::pow(2.0f, (aMidiNote - aBaseMidiNote) / 12.0f);
 }
 
+/// Human-readable name such as "C#4", for the status panel.
+inline const char* pitchClassName(int aMidiNote)
+{
+    static const char* kNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    const int          index      = ((aMidiNote % 12) + 12) % 12;
+    return kNames[index];
+}
+
+inline int octaveOf(int aMidiNote)
+{
+    // MIDI 60 == C4 in the scientific-pitch convention used here.
+    return (aMidiNote / 12) - 1;
+}
+
 } // namespace notes
 
 /// A single message from the UI thread to the audio thread.

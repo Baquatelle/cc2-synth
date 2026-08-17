@@ -5,6 +5,7 @@
 #include "ui/Oscilloscope.h"
 #include "ui/ParticleField.h"
 #include "ui/Sequencer.h"
+#include "ui/StatusPanel.h"
 #include "ui/XYPad.h"
 
 #include "ofMain.h"
@@ -12,7 +13,31 @@
 #include <map>
 #include <string>
 
-/// The application root.
+/// Dear peer reviewers!
+///
+/// This is tha application root and the top of the ownership tree.
+///
+/// The whole object graph is assembled here, and this is the single best place to
+/// read the project's structure:
+///
+///   ofApp                                (owns everything below, by value)
+///    |-- SynthEngine                     COMPOSITION
+///    |    '-- vector<unique_ptr<Voice>>  COMPOSITION (pool)
+///    |         '-- Envelope, Filter      COMPOSITION (by-value parts)
+///    |-- SampleLibrary                   COMPOSITION of the library object,
+///    |    '-- shared_ptr<Sample>         AGGREGATION of the recordings
+///    |-- Sequencer  ------> engine       ASSOCIATION (non-owning pointer)
+///    |-- XYPad      ------> engine       ASSOCIATION
+///    |-- Oscilloscope ----> engine       ASSOCIATION (const)
+///    |-- ParticleField ---> engine       ASSOCIATION (const)
+///    '-- StatusPanel  ----> engine,      ASSOCIATION (const, several targets)
+///                           sequencer,
+///                           library
+///
+/// Members are held by value rather than by pointer: their lifetimes are exactly
+/// the app's, so there is nothing to allocate, nothing to free, and no possible
+/// order-of-destruction bug. The associations are wired once in `setup()`, after
+/// every member already exists.
 class ofApp : public ofBaseApp
 {
   public:
@@ -51,6 +76,7 @@ class ofApp : public ofBaseApp
     XYPad         mXyPad;
     Oscilloscope  mOscilloscope;
     ParticleField mParticles;
+    StatusPanel   mStatusPanel;
 
     ofSoundStream mSoundStream;
 
@@ -77,6 +103,7 @@ class ofApp : public ofBaseApp
     ofRectangle mScopeRect;
     ofRectangle mPadRect;
     ofRectangle mGridRect;
+    ofRectangle mStatusRect;
 
     float mLastFrameTime = 0.0f;
 };
