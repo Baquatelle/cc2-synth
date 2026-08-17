@@ -72,6 +72,11 @@ class Sequencer
     void toggleStep(std::size_t aRow, std::size_t aStep);
     bool stepEnabled(std::size_t aRow, std::size_t aStep) const;
 
+    void clear();
+
+    /// Fills the grid with a musically plausible random pattern.
+    void randomize(unsigned int aSeed);
+
     std::size_t currentStep() const
     {
         return mCurrentStep;
@@ -82,7 +87,7 @@ class Sequencer
         return mRows;
     }
 
-    /// Total notes triggered since construction.
+    /// Total notes triggered since construction; the self-test asserts on this.
     std::size_t triggeredNoteCount() const
     {
         return mTriggeredNotes;
@@ -96,10 +101,21 @@ class Sequencer
     /// Translates a click into a step toggle. Returns true if it hit the grid.
     bool handleClick(float aMouseX, float aMouseY, float aX, float aY, float aWidth, float aHeight);
 
+    /// Continues a paint gesture started by `handleClick`. Each newly entered cell
+    /// is toggled exactly once, so dragging across the grid draws a run of steps
+    /// instead of flickering the same cell on and off.
+    bool handleDrag(float aMouseX, float aMouseY, float aX, float aY, float aWidth, float aHeight);
+
+    /// Ends a paint gesture (mouse release).
+    void endDrag();
+
   private:
     void  triggerStep(std::size_t aStep);
     void  releaseExpiredNotes(float aDeltaSeconds);
     float secondsPerStep() const;
+
+    /// Plays a single row immediately, for click feedback.
+    void auditionRow(std::size_t aRow);
 
     /// Maps a pointer position to a cell. Returns false if outside the grid.
     bool cellAt(float aMouseX, float aMouseY, float aX, float aY, float aWidth, float aHeight, std::size_t& aOutRow,
@@ -127,4 +143,9 @@ class Sequencer
 
     /// Fraction of a step that a triggered note is held for.
     float mGateRatio = 0.55f;
+
+    // Paint-gesture state, so a drag toggles each cell at most once.
+    bool        mDragging        = false;
+    std::size_t mLastPaintedRow  = kRows;
+    std::size_t mLastPaintedStep = kSteps;
 };
