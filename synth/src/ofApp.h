@@ -4,6 +4,7 @@
 #include "audio/SynthEngine.h"
 #include "ui/Oscilloscope.h"
 #include "ui/ParticleField.h"
+#include "ui/Sequencer.h"
 #include "ui/XYPad.h"
 
 #include "ofMain.h"
@@ -24,6 +25,7 @@ class ofApp : public ofBaseApp
     void keyReleased(int aKey) override;
     void mousePressed(int aX, int aY, int aButton) override;
     void mouseDragged(int aX, int aY, int aButton) override;
+    void mouseReleased(int aX, int aY, int aButton) override;
     void windowResized(int aW, int aH) override;
 
     /// The audio callback. This is the only openFrameworks-facing part of the audio
@@ -45,6 +47,7 @@ class ofApp : public ofBaseApp
     // ---- Owned by value: composition. ----
     SynthEngine   mEngine;
     SampleLibrary mSampleLibrary;
+    Sequencer     mSequencer;
     XYPad         mXyPad;
     Oscilloscope  mOscilloscope;
     ParticleField mParticles;
