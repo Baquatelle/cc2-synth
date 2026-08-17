@@ -623,6 +623,125 @@ void testSampleSharing()
     }
 }
 
+// -------------------------------------------------------------------------
+// The engine: pool, stealing, mixing
+// -------------------------------------------------------------------------
+
+void testEngine()
+{
+    std::cout << "engine\n";
+
+    SynthEngine engine;
+    engine.prepare(44100.0f, 2);
+
+    expect(engine.voices().size() == SynthEngine::kVoicesPerType * kVoiceTypeCount, "pool is fully preallocated");
+    expect(engine.activeVoiceCount() == 0, "no voices active before any note");
+
+    std::vector<float> block(256 * 2, 0.0f);
+
+    // Silence in, silence out.
+    engine.process(block.data(), 256, 2);
+    float peak = 0.0f;
+    for (float sample : block)
+    {
+        peak = std::max(peak, std::fabs(sample));
+    }
+    expect(peak == 0.0f, "outputs silence when idle");
+
+    // One note must actually be audible.
+    engine.noteOn(VoiceType::FM, 60, 1.0f, 0);
+    peak = 0.0f;
+    for (int i = 0; i < 20; ++i)
+    {
+        engine.process(block.data(), 256, 2);
+        for (float sample : block)
+        {
+            peak = std::max(peak, std::fabs(sample));
+        }
+    }
+    expect(peak > 0.005f, "a note produces audible output");
+    expect(engine.activeVoiceCount() > 0, "the note occupies a voice");
+
+    // Both channels must carry the same signal (the synth is mono, fanned out).
+    engine.process(block.data(), 256, 2);
+    bool channelsMatch = true;
+    for (std::size_t frame = 0; frame < 256; ++frame)
+    {
+        if (block[frame * 2] != block[frame * 2 + 1])
+        {
+            channelsMatch = false;
+            break;
+        }
+    }
+    expect(channelsMatch, "left and right carry the same samples");
+
+    // Note-stealing: ask for far more notes than the sub-pool can hold.
+    for (int note = 40; note < 40 + static_cast<int>(SynthEngine::kVoicesPerType) * 2; ++note)
+    {
+        engine.noteOn(VoiceType::FM, note, 0.8f, 0);
+    }
+    engine.process(block.data(), 256, 2);
+    expect(engine.activeVoiceCount() <= SynthEngine::kVoicesPerType * kVoiceTypeCount,
+           "the pool is never exceeded when notes are stolen");
+    expect(engine.droppedEvents() == 0, "no events dropped");
+
+    // REGRESSION: allNotesOff() must only enqueue. Applying it directly from the
+    // calling thread would be a data race against process().
+    engine.allNotesOff();
+    expect(engine.activeVoiceCount() > 0, "allNotesOff() does not mutate the pool from the caller's thread");
+
+    for (int i = 0; i < 500 && engine.activeVoiceCount() > 0; ++i)
+    {
+        engine.process(block.data(), 256, 2);
+    }
+    expect(engine.activeVoiceCount() == 0, "allNotesOff() silences everything once the queue is drained");
+
+    // REGRESSION: the output must never contain NaN/Inf or exceed full scale, even
+    // with a dense chord through a highly resonant filter.
+    {
+        SynthEngine stress;
+        stress.prepare(44100.0f, 2);
+        stress.setResonance(0.95f);
+        stress.setCutoff(60.0f);
+        stress.setMasterVolume(1.0f);
+        for (int note = 36; note < 60; ++note)
+        {
+            stress.noteOn(VoiceType::FM, note, 1.0f, 0);
+            stress.noteOn(VoiceType::Percussion, note, 1.0f, 0);
+        }
+
+        bool clean = true;
+        for (int b = 0; b < 300 && clean; ++b)
+        {
+            stress.process(block.data(), 256, 2);
+            for (float sample : block)
+            {
+                if (!std::isfinite(sample) || std::fabs(sample) > 1.001f)
+                {
+                    clean = false;
+                    break;
+                }
+            }
+        }
+        expect(clean, "output stays finite and within full scale under stress");
+    }
+
+    // The scope buffer must be readable and sane for the oscilloscope.
+    std::vector<float> scope;
+    engine.copyScope(scope);
+    expect(scope.size() == SynthEngine::kScopeSize, "scope buffer has the expected size");
+    bool scopeFinite = true;
+    for (float sample : scope)
+    {
+        if (!std::isfinite(sample))
+        {
+            scopeFinite = false;
+            break;
+        }
+    }
+    expect(scopeFinite, "scope buffer contains only finite samples");
+}
+
 } // namespace
 
 int run()
@@ -636,6 +755,7 @@ int run()
     testVoices();
     testAudioLevels();
     testSampleSharing();
+    testEngine();
 
     std::cout << "-------------------\n";
     std::cout << g_checks - g_failures << " / " << g_checks << " checks passed\n";
