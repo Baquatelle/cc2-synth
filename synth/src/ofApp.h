@@ -22,8 +22,9 @@
 ///
 ///   ofApp                                (owns everything below, by value)
 ///    |-- SynthEngine                     COMPOSITION
-///    |    '-- vector<unique_ptr<Voice>>  COMPOSITION (pool)
-///    |         '-- Envelope, Filter      COMPOSITION (by-value parts)
+///    |    |-- vector<unique_ptr<Voice>>  COMPOSITION (pool)
+///    |    |    '-- Envelope, Filter      COMPOSITION (by-value parts)
+///    |    '-- Delay                      COMPOSITION (master-bus echo)
 ///    |-- SampleLibrary                   COMPOSITION of the library object,
 ///    |    '-- shared_ptr<Sample>         AGGREGATION of the recordings
 ///    |-- Sequencer  ------> engine       ASSOCIATION (non-owning pointer)
@@ -72,6 +73,13 @@ class ofApp : public ofBaseApp
     /// Screen position for a note's particle burst.
     glm::vec2 particleOriginFor(int aMidiNote) const;
 
+    /// Toggles the master-bus echo on/off (key 'm') and logs the new state.
+    void toggleDelay();
+
+    /// Nudges the echo's feedback amount up or down (keys '=' / '-') and logs
+    /// the new value. Only audible once the effect has been engaged.
+    void adjustDelayFeedback(float aDelta);
+
     // ---- Owned by value: composition. ----
     SynthEngine   mEngine;
     SampleLibrary mSampleLibrary;
@@ -101,6 +109,14 @@ class ofApp : public ofBaseApp
 
     VoiceType mActiveVoiceType = VoiceType::FM;
     int       mOctaveOffset    = 0;
+
+    /// Mirrors whether the master-bus echo is currently engaged, so 'm' can
+    /// toggle it without having to read the mix back out of the engine.
+    bool mDelayEngaged = false;
+
+    /// Dry/wet mix applied to the delay once engaged. Chosen to be clearly
+    /// audible without drowning out the dry signal.
+    static constexpr float kDelayEngagedMix = 0.35f;
 
     // Layout rectangles, recomputed on resize.
     ofRectangle mScopeRect;

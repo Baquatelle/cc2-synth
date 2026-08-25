@@ -232,7 +232,6 @@ void ofApp::draw()
 {
     // Particles are drawn first so the panels stay legible on top of the bloom.
     mParticles.draw();
-
     mOscilloscope.draw(mScopeRect.x, mScopeRect.y, mScopeRect.width, mScopeRect.height);
     mXyPad.draw(mPadRect.x, mPadRect.y, mPadRect.width, mPadRect.height);
     mSequencer.draw(mGridRect.x, mGridRect.y, mGridRect.width, mGridRect.height);
@@ -261,6 +260,27 @@ glm::vec2 ofApp::particleOriginFor(int aMidiNote) const
     const float normalized = dsp::clampf((static_cast<float>(aMidiNote) - lowest) / (highest - lowest), 0.0f, 1.0f);
 
     return {mGridRect.x + normalized * mGridRect.width, mGridRect.getCenter().y};
+}
+
+void ofApp::toggleDelay()
+{
+    // mDelayEngaged is the single source of truth for "on or off"; the actual
+    // mix value lives in the engine and is only ever kDelayEngagedMix or 0, so
+    // there is nothing else to keep in sync between the two.
+    mDelayEngaged = !mDelayEngaged;
+    mEngine.setDelayMix(mDelayEngaged ? kDelayEngagedMix : 0.0f);
+
+    ofLogNotice("ofApp") << "master delay " << (mDelayEngaged ? "engaged" : "bypassed") << " (feedback "
+                         << mEngine.delayFeedback() << ", time " << mEngine.delayTimeMs() << " ms)";
+}
+
+void ofApp::adjustDelayFeedback(float aDelta)
+{
+    // Feedback is meaningful to change even while bypassed (it takes effect
+    // immediately the next time 'm' engages the effect), so this does not
+    // require the delay to already be on.
+    mEngine.setDelayFeedback(mEngine.delayFeedback() + aDelta);
+    ofLogNotice("ofApp") << "delay feedback: " << mEngine.delayFeedback();
 }
 
 void ofApp::keyPressed(int aKey)
@@ -300,6 +320,18 @@ void ofApp::keyPressed(int aKey)
         return;
     case ']':
         mSequencer.setTempo(mSequencer.tempo() + 5.0f);
+        return;
+    case 'm':
+    case 'M':
+        toggleDelay();
+        return;
+    case '-':
+    case '_':
+        adjustDelayFeedback(-0.05f);
+        return;
+    case '=':
+    case '+':
+        adjustDelayFeedback(0.05f);
         return;
     case ',':
         // Cycle the sampler's recording downwards.

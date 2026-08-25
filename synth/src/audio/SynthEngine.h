@@ -3,6 +3,7 @@
 #include "EventQueue.h"
 #include "Note.h"
 #include "Voice.h"
+#include "Delay.h"
 
 #include <array>
 #include <atomic>
@@ -29,6 +30,10 @@ class SampleLibrary;
 /// The `unique_ptr` indirection (rather than a vector of concrete voices) is what
 /// makes the polymorphism possible: the pool holds `Voice*` and calls
 /// `render()` on each without knowing or caring which subclass it is.
+///
+/// `mDelay` is a second, master-bus instance of the same composition
+/// relationship: the engine owns exactly one `Delay` by value, applied to the
+/// already-mixed signal after every voice has rendered. See Delay.h.
 class SynthEngine
 {
   public:
@@ -75,6 +80,17 @@ class SynthEngine
     void setMasterVolume(float aValue);
     void setEnvelope(const Envelope::Settings& aSettings);
 
+    /// Master-bus echo controls. All lock-free/atomic, exactly like the
+    /// controls above -- the UI thread writes them, the audio thread reads
+    /// them once per block in `process()`.
+    ///
+    /// `setDelayMix()` is the one that actually engages the effect: it
+    /// defaults to 0 (fully dry), so adding this feature changes nothing
+    /// about how the synth already sounded until a caller opts in.
+    void setDelayMix(float aValue);
+    void setDelayFeedback(float aValue);
+    void setDelayTimeMs(float aValue);
+
     float cutoff() const
     {
         return mCutoff.load(std::memory_order_relaxed);
@@ -92,6 +108,19 @@ class SynthEngine
         return mMasterVolume.load(std::memory_order_relaxed);
     }
     Envelope::Settings envelopeSettings() const;
+
+    float delayMix() const
+    {
+        return mDelayMix.load(std::memory_order_relaxed);
+    }
+    float delayFeedback() const
+    {
+        return mDelayFeedback.load(std::memory_order_relaxed);
+    }
+    float delayTimeMs() const
+    {
+        return mDelayTimeMs.load(std::memory_order_relaxed);
+    }
 
     /// Which sample a sampler note selects.
     void        setSamplerSampleIndex(std::size_t aIndex);
@@ -162,6 +191,9 @@ class SynthEngine
 
     EventQueue<NoteEvent, 256> mEvents;
 
+    // ---- Composition: the engine exclusively owns the master-bus delay. ----
+    Delay mDelay;
+
     // The class contract above promises the audio thread never locks. A
     // std::atomic is only guaranteed lock-free for a few types, so let the
     // compiler prove the assumption rather than trusting it: if a target ever
@@ -182,6 +214,11 @@ class SynthEngine
     std::atomic<float>       mSustain{0.70f};
     std::atomic<float>       mRelease{0.30f};
     std::atomic<std::size_t> mSamplerSampleIndex{0};
+
+    // Master-bus echo parameters. mDelayMix defaults to 0 (bypassed).
+    std::atomic<float> mDelayMix{0.0f};
+    std::atomic<float> mDelayFeedback{0.35f};
+    std::atomic<float> mDelayTimeMs{220.0f};
 
     // Telemetry published by the audio thread.
     std::atomic<std::size_t> mActiveVoices{0};
