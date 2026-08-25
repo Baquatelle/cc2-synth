@@ -42,6 +42,8 @@ void StatusPanel::draw(float aX, float aY) const
     text << "MORPH   " << mEngine->morph() << "   volume " << mEngine->masterVolume() << "\n";
     text << "ADSR    a " << envelope.mAttack << "  d " << envelope.mDecay << "  s " << envelope.mSustain << "  r "
          << envelope.mRelease << "\n";
+    text << "DELAY   mix " << mEngine->delayMix() << "   feedback " << mEngine->delayFeedback()
+         << "   time " << mEngine->delayTimeMs() << " ms\n";
 
     if (mSequencer != nullptr)
     {
