@@ -39,7 +39,7 @@ authors' judgment about the DSP design.
 used an AI tool for boilerplate, debugging, or refactoring suggestions,
 list the actual prompt and what you kept vs. rewrote. If you wrote the DSP
 code yourselves without AI assistance, say so explicitly — that's AIAS
-level 1 for that task, and just as valid to report.)**
+level 1 for that task, and just as valid to report.)*
 
 ## What we deliberately did not do
 
