@@ -76,6 +76,13 @@ void SynthEngine::prepare(float aSampleRate, std::size_t aOutputChannels)
 
     applyParamsToPool();
 
+    // Same "allocate once in prepare(), never on the audio thread" rule that
+    // governs the voice pool applies to the master-bus delay line.
+    mDelay.prepare(mSampleRate);
+    mDelay.setTimeMs(delayTimeMs());
+    mDelay.setFeedback(delayFeedback());
+    mDelay.setMix(delayMix());
+
     mScope.fill(0.0f);
     mScopeWrite.store(0, std::memory_order_relaxed);
     mActiveVoices.store(0, std::memory_order_relaxed);
@@ -163,6 +170,24 @@ Envelope::Settings SynthEngine::envelopeSettings() const
     settings.mSustain = mSustain.load(std::memory_order_relaxed);
     settings.mRelease = mRelease.load(std::memory_order_relaxed);
     return settings;
+}
+
+void SynthEngine::setDelayMix(float aValue)
+{
+    // Clamped again here (not just inside Delay::setMix) so delayMix() -- read
+    // straight back by the UI, e.g. to decide whether to draw the effect as
+    // "engaged" -- always reflects the value that will actually be applied.
+    mDelayMix.store(dsp::clampf(aValue, 0.0f, 1.0f), std::memory_order_relaxed);
+}
+
+void SynthEngine::setDelayFeedback(float aValue)
+{
+    mDelayFeedback.store(dsp::clampf(aValue, 0.0f, 0.95f), std::memory_order_relaxed);
+}
+
+void SynthEngine::setDelayTimeMs(float aValue)
+{
+    mDelayTimeMs.store(dsp::clampf(aValue, 1.0f, Delay::kMaxDelayMs), std::memory_order_relaxed);
 }
 
 void SynthEngine::setSamplerSampleIndex(std::size_t aIndex)
@@ -297,6 +322,12 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
 
     applyParamsToPool();
 
+    // Same pattern as applyParamsToPool(): pull the latest atomic settings into
+    // the (audio-thread-owned) Delay once per block, not once per sample.
+    mDelay.setTimeMs(delayTimeMs());
+    mDelay.setFeedback(delayFeedback());
+    mDelay.setMix(delayMix());
+
     const float targetVolume      = masterVolume();
     // ~5 ms one-pole smoothing so dragging the volume never steps or zippers.
     const float volumeCoefficient = dsp::onePoleCoefficient(0.005f, mSampleRate);
@@ -325,6 +356,13 @@ void SynthEngine::process(float* aBuffer, std::size_t aNumFrames, std::size_t aN
         // tanh() stays the hard bound on the master bus: out cannot leave
         // (-1, 1) no matter how many voices sound at once.
         float out = dsp::sanitize(dsp::softClip(mix * mixScale) * mSmoothedVolume);
+
+        // The delay sits after the clipper (it echoes the same signal the
+        // listener hears, not the raw pre-clip mix) and is sanitized again on
+        // its own way out: mDelayMix defaults to 0, so when the effect is
+        // bypassed this is a no-op plus one redundant clamp, not a behaviour
+        // change to any of the sound that existed before this feature.
+        out = dsp::sanitize(mDelay.process(out));
 
         const float magnitude = std::fabs(out);
         if (magnitude > peak)

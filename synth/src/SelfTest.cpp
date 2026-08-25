@@ -1,5 +1,6 @@
 #include "SelfTest.h"
 
+#include "audio/Delay.h"
 #include "audio/DspMath.h"
 #include "audio/Envelope.h"
 #include "audio/FMVoice.h"
@@ -178,6 +179,82 @@ void testFilter()
         }
     }
     expect(stable, "stays stable at maximum resonance");
+}
+
+void testDelay()
+{
+    std::cout << "delay\n";
+
+    constexpr float kSampleRate = 44100.0f;
+
+    // --- bypass transparency: mix==0 must pass the input through unchanged ---
+    {
+        Delay delay;
+        delay.prepare(kSampleRate);
+        delay.setMix(0.0f);
+        delay.setFeedback(0.5f);
+        delay.setTimeMs(100.0f);
+
+        bool transparent = true;
+        for (int i = 0; i < 1000; ++i)
+        {
+            const float input  = (i % 2 == 0) ? 1.0f : -0.5f;
+            const float output = delay.process(input);
+            if (output != input)
+            {
+                transparent = false;
+                break;
+            }
+        }
+        expect(transparent, "delay with mix==0 passes audio through unchanged");
+    }
+
+    // --- feedback decay ratio: each successive echo must be quieter by ~feedback ---
+    {
+        // Use a delay time of exactly 100 ms and a sample rate of 44100, feeding
+        // one impulse.  The nth echo should be approximately feedback^n of the
+        // first echo.
+        constexpr float kFeedback  = 0.5f;
+        constexpr float kTimeMs    = 100.0f;
+        constexpr int   kDelaySamp = static_cast<int>(kSampleRate * kTimeMs / 1000.0f);
+
+        Delay delay;
+        delay.prepare(kSampleRate);
+        delay.setMix(1.0f); // fully wet so we only hear the delayed signal
+        delay.setFeedback(kFeedback);
+        delay.setTimeMs(kTimeMs);
+
+        // Feed an impulse at sample 0, then silence.
+        std::vector<float> out;
+        out.reserve(kDelaySamp * 4 + 1);
+        for (int i = 0; i < kDelaySamp * 4 + 1; ++i)
+        {
+            out.push_back(delay.process(i == 0 ? 1.0f : 0.0f));
+        }
+
+        // Collect the peak around each expected echo position.
+        auto echoAt = [&](int n) {
+            const int centre = n * kDelaySamp;
+            float     peak   = 0.0f;
+            for (int k = centre - 2; k <= centre + 2; ++k)
+            {
+                if (k >= 0 && k < static_cast<int>(out.size()))
+                    peak = std::max(peak, std::fabs(out[k]));
+            }
+            return peak;
+        };
+
+        const float echo1 = echoAt(1);
+        const float echo2 = echoAt(2);
+        const float echo3 = echoAt(3);
+
+        // Each repeat should be within 10 % of the ideal feedback^n decay.
+        expect(echo1 > 0.5f, "first echo is audible");
+        expect(echo2 > 0.0f && std::fabs(echo2 / echo1 - kFeedback) < 0.1f,
+               "second echo decays by the feedback factor");
+        expect(echo3 > 0.0f && std::fabs(echo3 / echo2 - kFeedback) < 0.1f,
+               "third echo decays by the feedback factor");
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -853,6 +930,7 @@ int run()
 
     testEnvelope();
     testFilter();
+    testDelay();
     testWavLoader();
     testVoices();
     testAudioLevels();
