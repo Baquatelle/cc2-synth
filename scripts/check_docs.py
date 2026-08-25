@@ -57,8 +57,11 @@ def find_broken_links(md_file: pathlib.Path) -> list[str]:
         target = link.split("#", 1)[0].strip()
         if not target:
             continue
+        root = repo_root().resolve()
         resolved = (md_file.parent / target).resolve()
-        if not resolved.exists():
+        if resolved != root and root not in resolved.parents:
+            broken.append(link)
+        elif not resolved.exists():
             broken.append(link)
     return broken
 
