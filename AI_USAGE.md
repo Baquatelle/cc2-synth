@@ -14,8 +14,8 @@ differently.
 | Repository audit (this doc set) | AIAS 3 — AI-assisted editing/review | Perplexity | Read the existing repo (file tree, commit history, README) and pointed out that `PLAN.md` and `KNOWN_ISSUES.md` were referenced but missing, and that no commits yet existed from the second team member | Reviewed the findings, decided what to actually fix, wrote/approved the final wording, decided the doc-checker was worth adding, requested and approved the PR |
 | `scripts/check_docs.py` | AIAS 3 — AI-assisted co-drafting, human-verified | Perplexity + local Python execution | Drafted the script and **ran it against the real README content in a sandbox** to confirm it correctly flags the missing `KNOWN_ISSUES.md` link and passes once the file exists | Specified the requirement ("catch dead doc links"), reviewed the logic, chose to include it in the repo |
 | `PLAN.md` / `KNOWN_ISSUES.md` content | AIAS 2–3 — AI-assisted drafting from real project data | Perplexity | Drafted structure and prose from the actual commit history and README, rather than inventing content | Corrected/filled in team-specific facts (roles, actual test results), is responsible for final accuracy |
-| Core synth engine / DSP code (FM, percussion, sampler, filter, envelope) | Team member to fill in | — | — | — |
-| UI layer (sequencer, XY pad, oscilloscope, particle field) | Team member to fill in | — | — | — |
+| Core synth engine / DSP code (FM, percussion, sampler, filter, envelope) | AIAS 1 (No AI) | — | — | — |
+| UI layer (sequencer, XY pad, oscilloscope, particle field) | AIAS 1 (No AI) | — | — | — |
 
 **Rule followed:** AI was not asked to "solve the assignment." It was asked
 to review an existing, mostly human-written project and fill two concrete,
